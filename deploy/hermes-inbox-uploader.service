@@ -1,0 +1,10 @@
+[Unit]
+Description=Hermes WIKI Inbox queue uploader
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+EnvironmentFile=/srv/hermes-ops/uploader.env
+ExecStart=/opt/hermes-ops/deploy/upload-inbox-queue.sh

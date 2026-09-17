@@ -44,3 +44,12 @@ def test_webhook_deletion_requires_explicit_true_setting(monkeypatch):
     )
 
     assert telegram_gateway._should_delete_webhook() is True
+
+
+def test_env_file_value_can_be_loaded_from_file(monkeypatch, tmp_path):
+    secret_file = tmp_path / "secret"
+    secret_file.write_text("secret-value\n", encoding="utf-8")
+    monkeypatch.delenv("TEST_SECRET", raising=False)
+    monkeypatch.setenv("TEST_SECRET_FILE", str(secret_file))
+
+    assert telegram_gateway._load_env_file_value("TEST_SECRET") == "secret-value"

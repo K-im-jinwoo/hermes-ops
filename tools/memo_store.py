@@ -14,6 +14,7 @@ from typing import Optional
 
 class MemoSaveStatus(str, Enum):
     CREATED = "created"
+    QUEUED = "queued"
     DUPLICATE = "duplicate"
     NEEDS_REVIEW = "needs_review"
     UNAVAILABLE = "unavailable"

@@ -109,3 +109,26 @@ def test_memo_approval_rejects_a_different_user(monkeypatch, tmp_path):
     )
 
     assert "없거나 만료" in result
+
+
+def test_memo_approval_reports_queue_registration(monkeypatch, tmp_path):
+    store = MemoApprovalStore(tmp_path / "approvals.sqlite3")
+    monkeypatch.setattr(telegram_gateway, "_get_memo_approval_store", lambda: store)
+    monkeypatch.setenv("HERMES_MEMO_SINK", "queue")
+    monkeypatch.setenv("HERMES_INBOX_QUEUE_DIR", str(tmp_path / "queue"))
+
+    preview = telegram_gateway.process_user_prompt(
+        "Oracle 전환 메모를 WIKI에 기록해줘",
+        user_id="user-1",
+        chat_id="chat-1",
+    )
+    approval_id = re.search(r"H-[A-F0-9]{12}", preview).group(0)
+
+    result = telegram_gateway.process_user_prompt(
+        f"승인 {approval_id}",
+        user_id="user-1",
+        chat_id="chat-1",
+    )
+
+    assert "저장 대기열에 등록했습니다" in result
+    assert len(list((tmp_path / "queue" / "pending").glob("*.md"))) == 1

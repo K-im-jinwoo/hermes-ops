@@ -33,7 +33,7 @@ def record_tool_event(
     duration_ms: float,
     status: str,
     error_message: Optional[str] = None,
-    log_destination: str = "./logs/events.jsonl"
+    log_destination: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     도구 실행 결과를 포맷팅하여 JSONL 로그 파일에 기록합니다.
@@ -48,6 +48,10 @@ def record_tool_event(
     Returns:
         기록된 로그 엔트리 딕셔너리
     """
+    destination = log_destination or os.getenv(
+        "HERMES_METRICS_LOG",
+        "./logs/events.jsonl",
+    )
     timestamp = datetime.now(timezone.utc).isoformat()
 
     event_payload: Dict[str, Any] = {
@@ -61,7 +65,7 @@ def record_tool_event(
     if error_message:
         event_payload["error"] = error_message
 
-    _append_log_entry(log_destination, event_payload)
+    _append_log_entry(destination, event_payload)
     return event_payload
 
 

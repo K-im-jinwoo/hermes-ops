@@ -27,6 +27,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from tools.wiki_tool import read_wiki_file, wiki_search
 from tools.memo_approval import MemoApprovalStore, PendingMemo
+from tools.memo_queue import stage_memo_to_queue
 from tools.memo_store import MemoSaveResult, MemoSaveStatus, locate_wiki_repo_root, save_memo_to_inbox
 from tools.antigravity_tool import ask_antigravity
 from tools.codex_tool import ask_codex
@@ -48,6 +49,15 @@ def _load_env_file_value(name: str) -> Optional[str]:
     value = os.getenv(name)
     if value:
         return value.strip().strip('"').strip("'")
+
+    file_path = os.getenv(f"{name}_FILE")
+    if file_path:
+        try:
+            file_value = Path(file_path).read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeError):
+            file_value = ""
+        if file_value:
+            return file_value.strip('"').strip("'")
 
     env_file = _PROJECT_ROOT / ".env"
     if not env_file.is_file():
@@ -192,6 +202,21 @@ def send_telegram_message(bot_token: str, chat_id: int, text: str) -> bool:
 # -----------------------------------------------------------------------------
 
 def _save_memo(prompt: str) -> MemoSaveResult:
+    sink = os.getenv("HERMES_MEMO_SINK", "direct").strip().casefold()
+    if sink == "queue":
+        queue_root = Path(
+            os.getenv(
+                "HERMES_INBOX_QUEUE_DIR",
+                str(_PROJECT_ROOT / "data" / "inbox_queue"),
+            )
+        )
+        return stage_memo_to_queue(prompt, queue_root=queue_root)
+    if sink not in {"direct", ""}:
+        return MemoSaveResult(
+            MemoSaveStatus.UNAVAILABLE,
+            reason="invalid_memo_sink",
+        )
+
     wiki_repo_root = locate_wiki_repo_root()
     if wiki_repo_root is None:
         return MemoSaveResult(
@@ -287,6 +312,12 @@ def _approve_memo(
 
 def _format_memo_save_result(result: MemoSaveResult) -> str:
     path = result.path.as_posix() if result.path else "wiki/00_Inbox"
+    if result.status is MemoSaveStatus.QUEUED:
+        return (
+            "메모를 저장 대기열에 등록했습니다.\n"
+            f"대기열 경로: {path}\n"
+            "Google Drive 업로드는 별도 동기화 작업에서 처리됩니다."
+        )
     if result.status is MemoSaveStatus.CREATED:
         return f"메모를 저장했습니다.\n경로: {path}"
     if result.status is MemoSaveStatus.DUPLICATE:
