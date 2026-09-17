@@ -23,6 +23,11 @@ def test_compose_keeps_candidate_disabled_and_wiki_read_only():
     assert service["environment"]["HERMES_MEMO_SINK"] == "queue"
     assert service["environment"]["TELEGRAM_BOT_TOKEN_FILE"] == "/run/secrets/telegram-bot-token"
     assert "telegram-bot-token" in service["secrets"]
+    assert service["environment"]["GOOGLE_DRIVE_CREDENTIALS_FILE"] == "/run/secrets/google-drive-credentials"
+    assert any(
+        volume["target"] == "/run/secrets/google-drive-credentials" and volume["read_only"] is True
+        for volume in service["volumes"]
+    )
     assert compose["networks"]["n8n-private"]["external"] is True
 
 
@@ -42,3 +47,13 @@ def test_dockerfile_has_no_runtime_secret_or_host_port():
     assert "TELEGRAM_BOT_TOKEN" not in content
     assert "EXPOSE" not in content
     assert "USER hermes:hermes" in content
+
+
+def test_deploy_readme_documents_direct_drive_credentials_and_legacy_queue():
+    content = (DEPLOY_ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "GOOGLE_DRIVE_CREDENTIALS_FILE" in content
+    assert "client_id" in content
+    assert "refresh_token" in content
+    assert "rclone" in content
+    assert "legacy" in content.lower()

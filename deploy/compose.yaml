@@ -17,6 +17,8 @@ services:
       HERMES_INBOX_QUEUE_DIR: /var/lib/hermes/inbox_queue
       HERMES_APPROVAL_DB_PATH: /var/lib/hermes/state/memo_approvals.sqlite3
       HERMES_METRICS_LOG: /var/lib/hermes/state/events.jsonl
+      GOOGLE_DRIVE_CREDENTIALS_FILE: /run/secrets/google-drive-credentials
+      GOOGLE_DRIVE_ROOT_ID: "${GOOGLE_DRIVE_ROOT_ID:-}"
       HARNESS_API_URL: "${HARNESS_API_URL:-}"
     volumes:
       - type: bind
@@ -29,6 +31,10 @@ services:
       - type: bind
         source: "${HERMES_QUEUE_HOST_DIR:-/srv/hermes-ops/queue}"
         target: /var/lib/hermes/inbox_queue
+      - type: bind
+        source: "${GOOGLE_DRIVE_CREDENTIALS_HOST_FILE:-/srv/hermes-ops/google-drive-credentials.json}"
+        target: /run/secrets/google-drive-credentials
+        read_only: true
     secrets:
       - telegram-bot-token
     tmpfs:

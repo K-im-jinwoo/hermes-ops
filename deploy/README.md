@@ -1,16 +1,18 @@
 # Oracle deployment
 
-This deployment keeps the Hermes process separate from Google Drive write
-credentials.
+This deployment gives Hermes a direct Google Drive CRUD tool while keeping the
+OAuth credential file outside the image and repository.
 
 ## Runtime boundary
 
 - `hermes-gateway` reads the synchronized WIKI at `/srv/llm-wiki/current`.
 - Approved memos are written to `/srv/hermes-ops/queue/pending` only.
-- `upload-inbox-queue.sh` is the only component that needs a write-capable
-  `rclone` remote.
-- The existing `wiki-drive` remote is read-only and must not be reused for
-  uploads.
+- Explicit Google Drive natural-language requests use the Drive v3 REST API
+  directly from Hermes.
+- The existing `rclone` queue uploader is a legacy fallback for approved WIKI
+  memos; it is not the Hermes CRUD interface.
+- `GOOGLE_DRIVE_CREDENTIALS_FILE` is mounted read-only at runtime and is never
+  copied into the image.
 - The `candidate` Compose profile is intentionally disabled by default.
 - `TELEGRAM_DELETE_WEBHOOK` stays `false` while n8n is still the active
   Telegram receiver.
@@ -26,23 +28,64 @@ the runtime UID configured in `compose.yaml`:
 /srv/hermes-ops/queue/pending
 /srv/hermes-ops/queue/uploaded
 /srv/hermes-ops/telegram-bot-token
+/srv/hermes-ops/google-drive-credentials.json
 /srv/hermes-ops/uploader.env
 ```
 
 The bot token file must be mode `0600` and must not be committed. The
-`uploader.env` file must contain only runtime configuration, for example:
+Google Drive credential file must also be mode `0600`, must not be committed,
+and must be readable by the Hermes container UID. Its minimum shape is:
+
+```json
+{
+  "client_id": "...",
+  "client_secret": "...",
+  "refresh_token": "...",
+  "token_uri": "https://oauth2.googleapis.com/token"
+}
+```
+
+Set the host path and optional default parent folder in the deployment
+environment:
+
+```text
+GOOGLE_DRIVE_CREDENTIALS_HOST_FILE=/srv/hermes-ops/google-drive-credentials.json
+GOOGLE_DRIVE_ROOT_ID=<WIKI 또는 00_Inbox 폴더 ID>
+```
+
+The `uploader.env` file is only for the legacy queue fallback and may contain:
 
 ```text
 HERMES_INBOX_QUEUE_DIR=/srv/hermes-ops/queue
-HERMES_INBOX_REMOTE=wiki-drive-write:
+HERMES_INBOX_REMOTE=wiki-drive:WIKI/wiki/00_Inbox
 HERMES_INBOX_LOCK_FILE=/var/lock/hermes-inbox-uploader.lock
 ```
 
-Configure `wiki-drive-write` with the Google Drive `00_Inbox` folder ID as its
-`root_folder_id`. This makes the remote root equal to `WIKI/wiki/00_Inbox` and
-avoids giving the uploader a path through the rest of the WIKI tree. The
-`wiki-drive-write` remote is intentionally a placeholder until a separate
-write identity is provisioned and verified.
+## Direct Google Drive CRUD candidate validation
+
+Provision the existing Google account's OAuth credential file with the
+required Drive write permission, then run the candidate while n8n still owns
+the Telegram webhook:
+
+```bash
+chmod 600 /srv/hermes-ops/google-drive-credentials.json
+docker compose --profile candidate build hermes-gateway
+docker compose --profile candidate up -d hermes-gateway
+docker compose logs --tail=100 hermes-gateway
+```
+
+From Telegram, test a unique file in the configured parent folder:
+
+```text
+구글드라이브에서 파일 목록 찾아줘
+구글드라이브에 파일명: hermes-crud-smoke.md 내용: smoke create 저장해줘
+구글드라이브 파일명: hermes-crud-smoke.md 내용: smoke update 수정해줘
+구글드라이브 파일명: hermes-crud-smoke.md 삭제해줘
+```
+
+Confirm each operation in Drive before considering the tool live. Do not set
+`TELEGRAM_DELETE_WEBHOOK=true` until this candidate path and the existing WIKI
+read path have both been verified.
 
 ## Candidate validation
 
