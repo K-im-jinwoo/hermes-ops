@@ -34,11 +34,14 @@ The bot token file must be mode `0600` and must not be committed. The
 
 ```text
 HERMES_INBOX_QUEUE_DIR=/srv/hermes-ops/queue
-HERMES_INBOX_REMOTE=wiki-drive-write:WIKI/wiki/00_Inbox
+HERMES_INBOX_REMOTE=wiki-drive-write:
 HERMES_INBOX_LOCK_FILE=/var/lock/hermes-inbox-uploader.lock
 ```
 
-The `wiki-drive-write` remote is intentionally a placeholder until a separate
+Configure `wiki-drive-write` with the Google Drive `00_Inbox` folder ID as its
+`root_folder_id`. This makes the remote root equal to `WIKI/wiki/00_Inbox` and
+avoids giving the uploader a path through the rest of the WIKI tree. The
+`wiki-drive-write` remote is intentionally a placeholder until a separate
 write identity is provisioned and verified.
 
 ## Candidate validation
