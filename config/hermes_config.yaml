@@ -28,6 +28,7 @@ tools:
     - "codex_tool"
     - "harness_tool"
     - "stock_tool"
+    - "google_drive_tool"
 
 hooks:
   metrics:

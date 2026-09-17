@@ -33,11 +33,14 @@ from tools.antigravity_tool import ask_antigravity
 from tools.codex_tool import ask_codex
 from tools.harness_tool import harness_status
 from tools.stock_tool import stock_research
+from tools.google_drive_request import DriveAction, GoogleDriveRequest, parse_google_drive_request
+from tools.google_drive_tool import DriveFile, GoogleDriveError, GoogleDriveClient, load_google_drive_client
 from hooks.metrics_hook import record_tool_event
 from intent_router import IntentKind, classify_intent
 
 _APPROVAL_ID_PATTERN = re.compile(r"\bH-[A-F0-9]{12}\b", re.IGNORECASE)
 _memo_approval_store: Optional[MemoApprovalStore] = None
+_google_drive_client: Optional[GoogleDriveClient] = None
 
 
 # -----------------------------------------------------------------------------
@@ -333,6 +336,124 @@ def _format_memo_save_result(result: MemoSaveResult) -> str:
     )
 
 
+def _get_google_drive_client() -> GoogleDriveClient:
+    global _google_drive_client
+    if _google_drive_client is None:
+        _google_drive_client = load_google_drive_client()
+    return _google_drive_client
+
+
+def _handle_google_drive_request(prompt: str) -> str:
+    request = parse_google_drive_request(prompt)
+    if request is None:
+        return (
+            "Google Drive 작업을 이해하지 못했습니다. "
+            "목록, 읽기, 생성, 수정, 삭제, 폴더 생성, 이동 중 하나를 명시해주세요."
+        )
+
+    started = time.perf_counter()
+    try:
+        client = _get_google_drive_client()
+        result = _execute_google_drive_request(client, request)
+        record_tool_event("google_drive", (time.perf_counter() - started) * 1000, "success")
+        return result
+    except GoogleDriveError as error:
+        record_tool_event("google_drive", (time.perf_counter() - started) * 1000, "error")
+        status = f" (HTTP {error.status})" if error.status is not None else ""
+        return f"Google Drive 작업에 실패했습니다{status}: {error}"
+
+
+def _execute_google_drive_request(client: GoogleDriveClient, request: GoogleDriveRequest) -> str:
+    if request.action is DriveAction.LIST:
+        files = client.list_files(
+            name_contains=request.file_name or request.query,
+            parent_id=request.parent_id,
+        )
+        return _format_drive_file_list(files)
+
+    if request.action is DriveAction.READ:
+        file_id, error = _resolve_drive_file_id(client, request)
+        if error:
+            return error
+        return f"[Google Drive 파일: {file_id}]\n\n{client.read_file(file_id)}"
+
+    if request.action is DriveAction.CREATE:
+        if not request.file_name:
+            return "생성할 파일명이 없습니다. '파일명: 회의록.md'처럼 지정해주세요."
+        if request.content is None:
+            return "생성할 파일 내용이 없습니다. '내용: ...'처럼 지정해주세요."
+        created = client.create_file(
+            request.file_name,
+            request.content,
+            parent_id=request.parent_id,
+        )
+        return f"Google Drive 파일을 생성했습니다.\n{_format_drive_file(created)}"
+
+    if request.action is DriveAction.UPDATE:
+        file_id, error = _resolve_drive_file_id(client, request, destructive=True)
+        if error:
+            return error
+        if request.content is None:
+            return "수정할 내용이 없습니다. '내용: ...'처럼 지정해주세요."
+        updated = client.update_file(file_id, content=request.content)
+        return f"Google Drive 파일을 수정했습니다.\n{_format_drive_file(updated)}"
+
+    if request.action is DriveAction.DELETE:
+        file_id, error = _resolve_drive_file_id(client, request, destructive=True)
+        if error:
+            return error
+        client.delete_file(file_id)
+        return f"Google Drive 파일을 삭제했습니다.\n파일 ID: {file_id}"
+
+    if request.action is DriveAction.CREATE_FOLDER:
+        if not request.folder_name:
+            return "생성할 폴더명이 없습니다. '폴더명: 프로젝트A'처럼 지정해주세요."
+        created = client.create_folder(request.folder_name, parent_id=request.parent_id)
+        return f"Google Drive 폴더를 생성했습니다.\n{_format_drive_file(created)}"
+
+    if request.action is DriveAction.MOVE:
+        if not request.parent_id:
+            return "이동할 상위 폴더 ID가 없습니다. '상위 폴더 ID: ...'처럼 지정해주세요."
+        file_id, error = _resolve_drive_file_id(client, request, destructive=True)
+        if error:
+            return error
+        moved = client.move_file(file_id, parent_id=request.parent_id)
+        return f"Google Drive 파일을 이동했습니다.\n{_format_drive_file(moved)}"
+
+    return "지원하지 않는 Google Drive 작업입니다."
+
+
+def _resolve_drive_file_id(
+    client: GoogleDriveClient,
+    request: GoogleDriveRequest,
+    *,
+    destructive: bool = False,
+) -> tuple[str, Optional[str]]:
+    if request.file_id:
+        return request.file_id, None
+    lookup = request.file_name or request.query
+    if not lookup:
+        return "", "대상 파일 ID 또는 파일명이 없습니다."
+    matches = client.list_files(name_contains=lookup)
+    if len(matches) != 1:
+        operation = "수정·삭제·이동" if destructive else "읽기"
+        return "", f"{operation} 대상이 정확히 하나로 확인되지 않았습니다. 파일 ID를 지정해주세요. (검색 결과: {len(matches)}건)"
+    return matches[0].file_id, None
+
+
+def _format_drive_file_list(files: list[DriveFile]) -> str:
+    if not files:
+        return "Google Drive에서 조건에 맞는 파일을 찾지 못했습니다."
+    lines = [f"Google Drive 검색 결과: {len(files)}건"]
+    lines.extend(f"- {_format_drive_file(file)}" for file in files)
+    return "\n".join(lines)
+
+
+def _format_drive_file(file: DriveFile) -> str:
+    link = f"\n  링크: {file.web_view_link}" if file.web_view_link else ""
+    return f"{file.name} (ID: {file.file_id}, MIME: {file.mime_type}){link}"
+
+
 def process_user_prompt(
     user_text: str,
     *,
@@ -349,6 +470,7 @@ def process_user_prompt(
             "다음과 같은 작업을 도와드릴 수 있습니다:\n"
             "📖 WIKI 조회: '최근 운동 기록 찾아줘', 'WIKI에서 프로젝트 검색'\n"
             "📝 메모 저장: '이 내용을 WIKI에 기록해줘' (미리보기 후 승인)\n"
+            "☁️ Google Drive: '구글드라이브에서 회의록 찾아줘', '파일을 생성/수정/삭제해줘'\n"
             "💻 코딩/분석: 'codex에게 파이썬 코드 물어봐줘'\n"
             "🧠 심층 추론: 'antigravity에게 분석 요청해줘'\n"
             "⚙️ 하네스 점검: '하네스 상태 어때?'\n"
@@ -363,6 +485,9 @@ def process_user_prompt(
             "요청을 정확히 이해하지 못했습니다.\n"
             "WIKI 조회, 메모 저장, 코드 작업, 하네스 상태 확인 중 어떤 작업인지 알려주세요."
         )
+
+    if intent.kind is IntentKind.GOOGLE_DRIVE:
+        return _handle_google_drive_request(cleaned)
 
     if intent.kind is IntentKind.MEMO_WRITE:
         return _request_memo_approval(

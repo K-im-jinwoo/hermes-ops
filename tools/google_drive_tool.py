@@ -368,6 +368,43 @@ def load_google_drive_client(
     )
 
 
+def google_drive_operation(
+    action: str,
+    *,
+    file_id: Optional[str] = None,
+    file_name: Optional[str] = None,
+    content: Optional[str] = None,
+    parent_id: Optional[str] = None,
+) -> object:
+    """Execute one explicit Drive operation for the tool registry."""
+    client = load_google_drive_client()
+    normalized = action.strip().casefold()
+    if normalized == "list":
+        return [_drive_file_to_dict(file) for file in client.list_files(name_contains=file_name, parent_id=parent_id)]
+    if normalized == "read":
+        return client.read_file(_require_id(file_id or ""))
+    if normalized == "create":
+        if file_name is None or content is None:
+            raise GoogleDriveError("생성에는 file_name과 content가 필요합니다.")
+        return _drive_file_to_dict(client.create_file(file_name, content, parent_id=parent_id))
+    if normalized == "update":
+        if file_id is None or content is None:
+            raise GoogleDriveError("수정에는 file_id와 content가 필요합니다.")
+        return _drive_file_to_dict(client.update_file(file_id, content=content))
+    if normalized == "delete":
+        client.delete_file(_require_id(file_id or ""))
+        return {"deleted": True, "file_id": file_id}
+    if normalized == "create_folder":
+        if file_name is None:
+            raise GoogleDriveError("폴더 생성에는 file_name이 필요합니다.")
+        return _drive_file_to_dict(client.create_folder(file_name, parent_id=parent_id))
+    if normalized == "move":
+        if file_id is None or parent_id is None:
+            raise GoogleDriveError("이동에는 file_id와 parent_id가 필요합니다.")
+        return _drive_file_to_dict(client.move_file(file_id, parent_id=parent_id))
+    raise GoogleDriveError(f"지원하지 않는 Google Drive 작업입니다: {action}")
+
+
 def _drive_file(payload: Mapping[str, object]) -> DriveFile:
     file_id = payload.get("id")
     name = payload.get("name")
@@ -384,6 +421,16 @@ def _drive_file(payload: Mapping[str, object]) -> DriveFile:
         parents=parents,
         web_view_link=web_view_link if isinstance(web_view_link, str) else None,
     )
+
+
+def _drive_file_to_dict(file: DriveFile) -> dict[str, object]:
+    return {
+        "id": file.file_id,
+        "name": file.name,
+        "mimeType": file.mime_type,
+        "parents": list(file.parents),
+        "webViewLink": file.web_view_link,
+    }
 
 
 def _parse_json(body: bytes) -> dict[str, object]:

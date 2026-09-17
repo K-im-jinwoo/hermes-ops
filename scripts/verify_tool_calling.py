@@ -27,6 +27,7 @@ from tools.antigravity_tool import ask_antigravity
 from tools.codex_tool import ask_codex
 from tools.harness_tool import harness_status
 from tools.stock_tool import stock_research
+from tools.google_drive_tool import google_drive_operation
 from intent_router import IntentKind, classify_intent
 
 
@@ -41,6 +42,7 @@ TOOL_REGISTRY: Dict[str, Callable[..., Any]] = {
     "ask_codex": ask_codex,
     "harness_status": harness_status,
     "stock_research": stock_research,
+    "google_drive": google_drive_operation,
 }
 
 TOOL_SCHEMAS: List[Dict[str, Any]] = [
@@ -125,6 +127,24 @@ TOOL_SCHEMAS: List[Dict[str, Any]] = [
                     "symbol": {"type": "string", "description": "종목 코드 또는 이름"}
                 },
                 "required": ["symbol"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "google_drive",
+            "description": "Google Drive 파일과 폴더를 명시적인 CRUD 작업으로 관리합니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["list", "read", "create", "update", "delete", "create_folder", "move"]},
+                    "file_id": {"type": "string", "description": "읽기·수정·삭제·이동 대상 파일 ID"},
+                    "file_name": {"type": "string", "description": "생성할 파일 또는 폴더 이름"},
+                    "content": {"type": "string", "description": "생성·수정할 텍스트 내용"},
+                    "parent_id": {"type": "string", "description": "상위 폴더 ID"}
+                },
+                "required": ["action"]
             }
         }
     }
