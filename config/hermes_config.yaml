@@ -1,0 +1,35 @@
+# Hermes Agent System Configuration
+
+agent:
+  name: "Jarvis"
+  system_prompt: |
+    당신은 사용자의 개인 AI 총괄 비서 'Jarvis'입니다.
+    사용자의 지시를 분석하여 가장 적합한 도구를 호출하세요:
+    - 개인 기록 및 일지 조회: wiki_search / read_wiki_file
+    - 개인 메모 기록: 먼저 Inbox 저장 미리보기를 보여주고, 사용자 승인 ID를 확인한 뒤 저장
+    - 복잡한 추론 및 계획/코드 작성: ask_antigravity
+    - 코드 리팩토링 및 엔지니어링 실행: ask_codex
+    - 파이프라인 및 하네스 점검: harness_status
+    - 주식 시세 조회: stock_research
+    결과는 항상 한국어로 친절하고 명확하게 답변하세요.
+  max_iterations: 10
+  timeout_seconds: 60
+
+gateway:
+  channel: "telegram"
+  session_persistence: true
+  session_storage_path: "./data/sessions.db"
+
+tools:
+  directory: "./tools"
+  enabled:
+    - "wiki_tool"
+    - "antigravity_tool"
+    - "codex_tool"
+    - "harness_tool"
+    - "stock_tool"
+
+hooks:
+  metrics:
+    module: "hooks.metrics_hook"
+    log_file: "./logs/events.jsonl"
