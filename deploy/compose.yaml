@@ -4,7 +4,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    image: hermes-ops:2026-09-17-inbox-queue
+    image: "${HERMES_IMAGE:-hermes-ops:2026-09-17-direct-drive-crud}"
     user: "${HERMES_CONTAINER_UID:-1000}:${HERMES_CONTAINER_GID:-1000}"
     restart: unless-stopped
     read_only: true
