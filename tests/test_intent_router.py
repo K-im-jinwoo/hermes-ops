@@ -59,6 +59,18 @@ def test_natural_language_coding_request_routes_to_codex():
     assert intent.kind is IntentKind.CODEX
 
 
+def test_natural_language_google_drive_request_has_its_own_route():
+    intent = classify_intent("구글드라이브에서 파일명: 회의록.md 찾아줘")
+
+    assert intent.kind is IntentKind.GOOGLE_DRIVE
+
+
+def test_unrecognized_google_drive_request_does_not_fall_through_to_wiki():
+    intent = classify_intent("구글드라이브 어떻게 써?")
+
+    assert intent.kind is IntentKind.CLARIFY
+
+
 def test_explicit_specialist_requests_are_distinguished():
     assert classify_intent("antigravity에게 분석을 요청해줘").kind is IntentKind.ANTIGRAVITY
     assert classify_intent("하네스 상태 확인해줘").kind is IntentKind.HARNESS

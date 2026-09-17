@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from tools.google_drive_request import parse_google_drive_request
+
 
 class IntentKind(str, Enum):
     HELP = "help"
@@ -13,6 +15,7 @@ class IntentKind(str, Enum):
     CODEX = "codex"
     HARNESS = "harness"
     STOCK = "stock"
+    GOOGLE_DRIVE = "google_drive"
     CLARIFY = "clarify"
 
 
@@ -92,6 +95,10 @@ def classify_intent(user_text: str) -> Intent:
 
     if _contains_any(lowered, ("antigravity", "agy", "안티그래비티")):
         return Intent(IntentKind.ANTIGRAVITY, prompt, "antigravity_request")
+
+    if _contains_any(lowered, ("구글드라이브", "google drive", "gdrive")):
+        if parse_google_drive_request(prompt) is not None:
+            return Intent(IntentKind.GOOGLE_DRIVE, prompt, "google_drive_request")
 
     if _contains_any(lowered, _MEMO_APPROVAL_TERMS):
         return Intent(IntentKind.MEMO_APPROVE, prompt, "memo_approval_request")
