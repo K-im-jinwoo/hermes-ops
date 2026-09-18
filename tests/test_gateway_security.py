@@ -53,3 +53,37 @@ def test_env_file_value_can_be_loaded_from_file(monkeypatch, tmp_path):
     monkeypatch.setenv("TEST_SECRET_FILE", str(secret_file))
 
     assert telegram_gateway._load_env_file_value("TEST_SECRET") == "secret-value"
+
+
+def test_polling_logs_do_not_include_personal_message_content(monkeypatch, capsys):
+    private_prompt = "비밀 메모를 WIKI에서 찾아줘"
+    private_answer = "민감한 개인 답변"
+    fetch_count = 0
+
+    def fetch_once(*args, **kwargs):
+        nonlocal fetch_count
+        fetch_count += 1
+        if fetch_count > 1:
+            raise KeyboardInterrupt
+        return [{
+            "update_id": 1,
+            "message": {
+                "from": {"id": 123, "first_name": "Private Name"},
+                "chat": {"id": 456},
+                "text": private_prompt,
+            },
+        }]
+
+    monkeypatch.setattr(telegram_gateway, "_load_env_token", lambda: "test-token")
+    monkeypatch.setattr(telegram_gateway, "_load_allowed_user_ids", lambda: frozenset({123}))
+    monkeypatch.setattr(telegram_gateway, "_should_delete_webhook", lambda: False)
+    monkeypatch.setattr(telegram_gateway, "fetch_telegram_updates", fetch_once)
+    monkeypatch.setattr(telegram_gateway, "process_user_prompt", lambda *args, **kwargs: private_answer)
+    monkeypatch.setattr(telegram_gateway, "send_telegram_message", lambda *args, **kwargs: True)
+
+    telegram_gateway.start_gateway_polling()
+
+    output = capsys.readouterr().out
+    assert private_prompt not in output
+    assert private_answer not in output
+    assert "Private Name" not in output

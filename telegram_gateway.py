@@ -621,18 +621,16 @@ def start_gateway_polling() -> None:
 
                 chat_id = message_obj.get("chat", {}).get("id")
                 user_text = message_obj.get("text", "")
-                sender_name = message_obj.get("from", {}).get("first_name", "User")
-
                 if not user_text or not chat_id:
                     continue
 
-                print(f"\n[수신] {sender_name}: {user_text}")
+                print(f"\n[수신] 메시지 길이: {len(user_text)}자")
                 response_text = process_user_prompt(
                     user_text,
                     user_id=str(message_obj.get("from", {}).get("id")),
                     chat_id=str(chat_id),
                 )
-                print(f"[답변] {response_text[:60]}...")
+                print(f"[답변] 응답 길이: {len(response_text)}자")
 
                 send_telegram_message(bot_token, chat_id, response_text)
 
