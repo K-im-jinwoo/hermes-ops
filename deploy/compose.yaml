@@ -13,7 +13,7 @@ services:
       TELEGRAM_ALLOWED_USER_IDS: "${TELEGRAM_ALLOWED_USER_IDS:?required}"
       TELEGRAM_DELETE_WEBHOOK: "${TELEGRAM_DELETE_WEBHOOK:-false}"
       LLM_WIKI_ROOT: /srv/llm-wiki/current
-      HERMES_MEMO_SINK: queue
+      HERMES_MEMO_SINK: drive
       HERMES_INBOX_QUEUE_DIR: /var/lib/hermes/inbox_queue
       HERMES_APPROVAL_DB_PATH: /var/lib/hermes/state/memo_approvals.sqlite3
       HERMES_METRICS_LOG: /var/lib/hermes/state/events.jsonl

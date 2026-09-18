@@ -20,7 +20,7 @@ def test_compose_keeps_candidate_disabled_and_wiki_read_only():
         volume["target"] == "/srv/llm-wiki/current" and volume["read_only"] is True
         for volume in service["volumes"]
     )
-    assert service["environment"]["HERMES_MEMO_SINK"] == "queue"
+    assert service["environment"]["HERMES_MEMO_SINK"] == "drive"
     assert service["environment"]["TELEGRAM_BOT_TOKEN_FILE"] == "/run/secrets/telegram-bot-token"
     assert "telegram-bot-token" in service["secrets"]
     assert service["environment"]["GOOGLE_DRIVE_CREDENTIALS_FILE"] == "/run/secrets/google-drive-credentials"

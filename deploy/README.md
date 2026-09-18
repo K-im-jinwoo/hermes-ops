@@ -6,11 +6,13 @@ OAuth credential file outside the image and repository.
 ## Runtime boundary
 
 - `hermes-gateway` reads the synchronized WIKI at `/srv/llm-wiki/current`.
-- Approved memos are written to `/srv/hermes-ops/queue/pending` only.
+- Approved memos are created directly in the configured Google Drive Inbox.
+- Duplicate content is skipped; a matching title with different content is
+  returned for review. Drive failures never produce a saved acknowledgement.
 - Explicit Google Drive natural-language requests use the Drive v3 REST API
   directly from Hermes.
-- The existing `rclone` queue uploader is a legacy fallback for approved WIKI
-  memos; it is not the Hermes CRUD interface.
+- The existing `rclone` queue uploader remains a legacy fallback and is not
+  used by the candidate Compose service.
 - `GOOGLE_DRIVE_CREDENTIALS_FILE` is mounted read-only at runtime and is never
   copied into the image.
 - The `candidate` Compose profile is intentionally disabled by default.
@@ -19,8 +21,7 @@ OAuth credential file outside the image and repository.
 
 ## Host paths
 
-Create these paths on Oracle and make them writable by the `ubuntu` user and
-the runtime UID configured in `compose.yaml`:
+Create these paths on Oracle and make them writable by the runtime UID:
 
 ```text
 /opt/hermes-ops
@@ -32,7 +33,9 @@ the runtime UID configured in `compose.yaml`:
 /srv/hermes-ops/uploader.env
 ```
 
-The bot token file must be mode `0600` and must not be committed. The
+On the current Oracle host, `ubuntu` is UID/GID `1001:1001`; set
+`HERMES_CONTAINER_UID=1001` and `HERMES_CONTAINER_GID=1001` in the Compose
+environment. The bot token file must be mode `0600` and must not be committed. The
 Google Drive credential file must also be mode `0600`, must not be committed,
 and must be readable by the Hermes container UID. Its minimum shape is:
 
@@ -45,13 +48,18 @@ and must be readable by the Hermes container UID. Its minimum shape is:
 }
 ```
 
-Set the host path and optional default parent folder in the deployment
+Set the host path and the **exact `wiki/00_Inbox` folder ID** in the deployment
 environment:
 
 ```text
 GOOGLE_DRIVE_CREDENTIALS_HOST_FILE=/srv/hermes-ops/google-drive-credentials.json
-GOOGLE_DRIVE_ROOT_ID=<WIKI 또는 00_Inbox 폴더 ID>
+GOOGLE_DRIVE_ROOT_ID=<wiki/00_Inbox folder ID>
 ```
+
+The direct memo sink refuses to save when this ID is missing. It scans existing
+Markdown Inbox notes before creating a new draft and fails closed when the
+listing reaches 1000 files; this limit needs pagination before a larger Inbox
+can be used.
 
 The `uploader.env` file is only for the legacy queue fallback and may contain:
 
@@ -64,42 +72,30 @@ HERMES_INBOX_LOCK_FILE=/var/lock/hermes-inbox-uploader.lock
 ## Direct Google Drive CRUD candidate validation
 
 Provision the existing Google account's OAuth credential file with the
-required Drive write permission, then run the candidate while n8n still owns
-the Telegram webhook:
+required Drive write permission. Validate the candidate configuration and
+one-off container before starting Telegram polling:
 
 ```bash
-chmod 600 /srv/hermes-ops/google-drive-credentials.json
-docker compose --profile candidate build hermes-gateway
-docker compose --profile candidate up -d hermes-gateway
-docker compose logs --tail=100 hermes-gateway
+docker compose --env-file deploy/candidate.env -f deploy/compose.yaml --profile candidate config --quiet
+docker compose --env-file deploy/candidate.env -f deploy/compose.yaml --profile candidate run --rm --no-deps --entrypoint python hermes-gateway -c 'import telegram_gateway as g; assert g._load_env_token(); assert g._load_allowed_user_ids(); print("ready")'
 ```
 
-From Telegram, test a unique file in the configured parent folder:
+Check the bot's current webhook before polling. Long polling and an active
+webhook cannot receive updates simultaneously. When Telegram is routed to
+Hermes, test a unique file and one approved memo in the configured Inbox:
 
 ```text
 구글드라이브에서 파일 목록 찾아줘
 구글드라이브에 파일명: hermes-crud-smoke.md 내용: smoke create 저장해줘
 구글드라이브 파일명: hermes-crud-smoke.md 내용: smoke update 수정해줘
 구글드라이브 파일명: hermes-crud-smoke.md 삭제해줘
+이 메모를 WIKI에 기록해줘
+승인 <미리보기의 승인 ID>
 ```
 
-Confirm each operation in Drive before considering the tool live. Do not set
-`TELEGRAM_DELETE_WEBHOOK=true` until this candidate path and the existing WIKI
-read path have both been verified.
-
-## Candidate validation
-
-Build and start Hermes only as a candidate while n8n still owns the Telegram
-webhook:
-
-```bash
-docker compose --profile candidate build hermes-gateway
-docker compose --profile candidate up -d hermes-gateway
-docker compose logs --tail=100 hermes-gateway
-```
-
-Do not enable webhook deletion during this phase. Long polling cannot consume
-updates while the existing Telegram webhook is active.
+Confirm each operation in Drive and verify that the memo was created only
+after the approval reply. Do not remove n8n until its remaining routes have
+been inventoried and the Telegram cutover has a rollback path.
 
 ## Queue uploader
 

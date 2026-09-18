@@ -28,6 +28,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 from tools.wiki_tool import read_wiki_file, wiki_search
 from tools.memo_approval import MemoApprovalStore, PendingMemo
 from tools.memo_queue import stage_memo_to_queue
+from tools.memo_drive import save_memo_to_drive_inbox
 from tools.memo_store import MemoSaveResult, MemoSaveStatus, locate_wiki_repo_root, save_memo_to_inbox
 from tools.antigravity_tool import ask_antigravity
 from tools.codex_tool import ask_codex
@@ -206,6 +207,21 @@ def send_telegram_message(bot_token: str, chat_id: int, text: str) -> bool:
 
 def _save_memo(prompt: str) -> MemoSaveResult:
     sink = os.getenv("HERMES_MEMO_SINK", "direct").strip().casefold()
+    if sink == "drive":
+        inbox_id = os.getenv("GOOGLE_DRIVE_ROOT_ID", "").strip()
+        if not inbox_id:
+            return MemoSaveResult(
+                MemoSaveStatus.UNAVAILABLE,
+                reason="drive_inbox_not_configured",
+            )
+        try:
+            client = _get_google_drive_client()
+        except GoogleDriveError:
+            return MemoSaveResult(
+                MemoSaveStatus.UNAVAILABLE,
+                reason="drive_unavailable",
+            )
+        return save_memo_to_drive_inbox(prompt, client=client, inbox_id=inbox_id)
     if sink == "queue":
         queue_root = Path(
             os.getenv(
@@ -330,6 +346,8 @@ def _format_memo_save_result(result: MemoSaveResult) -> str:
             "같은 제목의 Inbox 초안이 있어 저장하지 않았습니다.\n"
             f"확인 대상: {path}"
         )
+    if result.reason in {"drive_inbox_not_configured", "drive_unavailable", "inbox_listing_limit"}:
+        return "Google Drive Inbox에 메모를 저장하지 못했습니다. 연결과 대상 폴더 설정을 확인해주세요."
     return (
         "메모를 저장하지 못했습니다. WIKI 구조를 확인한 뒤 다시 시도해주세요.\n"
         f"대상: {path}"
