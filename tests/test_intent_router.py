@@ -22,6 +22,12 @@ def test_natural_language_wiki_question_is_read_only():
     assert intent.kind is IntentKind.WIKI_READ
 
 
+def test_unprefixed_personal_question_routes_to_wiki_answer_service():
+    intent = classify_intent("내가 지난달 읽은 책은?")
+
+    assert intent.kind is IntentKind.WIKI_READ
+
+
 def test_time_scoped_wiki_request_without_a_verb_is_still_a_lookup():
     intent = classify_intent("오늘 운동 기록")
 

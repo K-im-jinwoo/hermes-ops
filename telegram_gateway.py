@@ -36,6 +36,7 @@ from tools.harness_tool import harness_status
 from tools.stock_tool import stock_research
 from tools.google_drive_request import DriveAction, GoogleDriveRequest, parse_google_drive_request
 from tools.google_drive_tool import DriveFile, GoogleDriveError, GoogleDriveClient, load_google_drive_client
+from tools.wiki_agent_client import WikiAgentError, ask_wiki
 from hooks.metrics_hook import record_tool_event
 from intent_router import IntentKind, classify_intent
 
@@ -530,24 +531,23 @@ def process_user_prompt(
 
     if intent.kind is IntentKind.WIKI_READ:
         start_time = time.perf_counter()
-        search_results = wiki_search(cleaned, max_results=5)
-
-        synthesis_prompt = (
-            f"사용자 질문: {cleaned}\n\n"
-            f"개인 WIKI 검색 결과:\n{search_results}\n\n"
-            "지침:\n"
-            "- 위 개인 WIKI 문서의 내용을 사실에 기반하여 친절하고 명확하게 한국어로 답변하세요.\n"
-            "- '최근' 또는 '언제'에 관한 질문인 경우, 가장 최신 날짜와 운동 부위를 명확히 짚어주고 근거 문서 경로를 함께 남겨주세요.\n"
-            "- 원시 파일 목록을 그대로 노출하지 말고, 비서의 자연스러운 문장으로 정돈해 주세요."
-        )
-
-        synthesized_answer = ask_antigravity(synthesis_prompt, timeout_seconds=30)
-        duration = (time.perf_counter() - start_time) * 1000
-        record_tool_event("wiki_search_synthesized", duration, "success")
-
-        if "오류:" in synthesized_answer:
-            return search_results
-        return synthesized_answer
+        if not chat_id:
+            return "WIKI 질문에 필요한 채팅 식별자가 없습니다."
+        try:
+            result = ask_wiki(
+                cleaned,
+                chat_id=chat_id,
+                endpoint=os.getenv("WIKI_AGENT_URL", ""),
+                key_file=Path(os.getenv("WIKI_AGENT_KEY_FILE", "")),
+            )
+        except WikiAgentError as error:
+            record_tool_event("wiki_agent_ask", (time.perf_counter() - start_time) * 1000, "error")
+            return str(error)
+        record_tool_event("wiki_agent_ask", (time.perf_counter() - start_time) * 1000, "success")
+        sources = tuple(dict.fromkeys(result.sources))
+        if not sources:
+            return result.answer
+        return result.answer + "\n\n출처:\n" + "\n".join(f"- {source}" for source in sources)
 
     if intent.kind is IntentKind.HARNESS:
         start_time = time.perf_counter()

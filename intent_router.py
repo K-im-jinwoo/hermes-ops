@@ -99,6 +99,7 @@ def classify_intent(user_text: str) -> Intent:
     if _contains_any(lowered, ("구글드라이브", "google drive", "gdrive")):
         if parse_google_drive_request(prompt) is not None:
             return Intent(IntentKind.GOOGLE_DRIVE, prompt, "google_drive_request")
+        return Intent(IntentKind.CLARIFY, prompt, "unrecognized_google_drive_request")
 
     if _contains_any(lowered, _MEMO_APPROVAL_TERMS):
         return Intent(IntentKind.MEMO_APPROVE, prompt, "memo_approval_request")
@@ -119,5 +120,8 @@ def classify_intent(user_text: str) -> Intent:
 
     if _contains_any(lowered, _CODEX_TERMS):
         return Intent(IntentKind.CODEX, prompt, "codex_request")
+
+    if "?" in prompt or "？" in prompt:
+        return Intent(IntentKind.WIKI_READ, prompt, "natural_language_question")
 
     return Intent(IntentKind.CLARIFY, prompt, "ambiguous_prompt")

@@ -11,6 +11,9 @@ OAuth credential file outside the image and repository.
   returned for review. Drive failures never produce a saved acknowledgement.
 - Explicit Google Drive natural-language requests use the Drive v3 REST API
   directly from Hermes.
+- Natural-language WIKI questions call the existing authenticated
+  `wiki-agent:8080/ask` service using the Telegram chat ID for continuity.
+  Telegram users do not need an `/ask` command.
 - The existing `rclone` queue uploader remains a legacy fallback and is not
   used by the candidate Compose service.
 - `GOOGLE_DRIVE_CREDENTIALS_FILE` is mounted read-only at runtime and is never
@@ -30,6 +33,7 @@ Create these paths on Oracle and make them writable by the runtime UID:
 /srv/hermes-ops/queue/uploaded
 /srv/hermes-ops/telegram-bot-token
 /srv/hermes-ops/google-drive-credentials.json
+/srv/llm-wiki/wiki-agent-shared-secret
 /srv/hermes-ops/uploader.env
 ```
 
@@ -61,6 +65,11 @@ Markdown Inbox notes before creating a new draft and fails closed when the
 listing reaches 1000 files; this limit needs pagination before a larger Inbox
 can be used.
 
+The existing wiki-agent shared key is mounted read-only as
+`/run/secrets/wiki-agent-key`. The candidate container must be able to read
+the host file; do not copy the key into the image or repository. Keep Hermes
+and wiki-agent on the private `n8n-infra_default` Docker network.
+
 The `uploader.env` file is only for the legacy queue fallback and may contain:
 
 ```text
@@ -82,9 +91,11 @@ docker compose --env-file deploy/candidate.env -f deploy/compose.yaml --profile 
 
 Check the bot's current webhook before polling. Long polling and an active
 webhook cannot receive updates simultaneously. When Telegram is routed to
-Hermes, test a unique file and one approved memo in the configured Inbox:
+Hermes, test a WIKI question, a unique file, and one approved memo in the
+configured Inbox:
 
 ```text
+최근 운동 기록은?
 구글드라이브에서 파일 목록 찾아줘
 구글드라이브에 파일명: hermes-crud-smoke.md 내용: smoke create 저장해줘
 구글드라이브 파일명: hermes-crud-smoke.md 내용: smoke update 수정해줘
@@ -95,7 +106,9 @@ Hermes, test a unique file and one approved memo in the configured Inbox:
 
 Confirm each operation in Drive and verify that the memo was created only
 after the approval reply. Do not remove n8n until its remaining routes have
-been inventoried and the Telegram cutover has a rollback path.
+been inventoried and the Telegram cutover has a rollback path. The separate
+Codex and Antigravity CLI routes in this repository still rely on local
+Windows executables and are not validated in the Oracle image.
 
 ## Queue uploader
 

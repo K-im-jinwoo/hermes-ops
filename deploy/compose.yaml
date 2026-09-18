@@ -19,6 +19,8 @@ services:
       HERMES_METRICS_LOG: /var/lib/hermes/state/events.jsonl
       GOOGLE_DRIVE_CREDENTIALS_FILE: /run/secrets/google-drive-credentials
       GOOGLE_DRIVE_ROOT_ID: "${GOOGLE_DRIVE_ROOT_ID:-}"
+      WIKI_AGENT_URL: http://wiki-agent:8080/ask
+      WIKI_AGENT_KEY_FILE: /run/secrets/wiki-agent-key
       HARNESS_API_URL: "${HARNESS_API_URL:-}"
     volumes:
       - type: bind
@@ -34,6 +36,10 @@ services:
       - type: bind
         source: "${GOOGLE_DRIVE_CREDENTIALS_HOST_FILE:-/srv/hermes-ops/google-drive-credentials.json}"
         target: /run/secrets/google-drive-credentials
+        read_only: true
+      - type: bind
+        source: "${WIKI_AGENT_KEY_HOST_FILE:-/srv/llm-wiki/wiki-agent-shared-secret}"
+        target: /run/secrets/wiki-agent-key
         read_only: true
     secrets:
       - telegram-bot-token
