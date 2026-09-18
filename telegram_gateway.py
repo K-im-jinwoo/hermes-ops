@@ -112,6 +112,17 @@ def _should_delete_webhook() -> bool:
     return (_load_env_file_value("TELEGRAM_DELETE_WEBHOOK") or "").casefold() == "true"
 
 
+def _refresh_heartbeat() -> None:
+    """Record a successful Telegram poll for the container healthcheck."""
+    heartbeat_path = os.getenv("HERMES_HEARTBEAT_PATH")
+    if not heartbeat_path:
+        return
+    try:
+        Path(heartbeat_path).touch()
+    except OSError as exc:
+        print(f"[heartbeat error]: {type(exc).__name__}")
+
+
 def ensure_webhook_deleted(bot_token: str) -> None:
     """기존 Webhook(n8n 등)이 활성화되어 409 Conflict가 발생하는 것을 방지합니다."""
     url = f"https://api.telegram.org/bot{bot_token}/deleteWebhook"
@@ -134,7 +145,11 @@ def fetch_telegram_updates(bot_token: str, offset: Optional[int], timeout_second
             if response.status != 200:
                 return []
             data = json.loads(response.read().decode("utf-8"))
-            return data.get("result", [])
+            result = data.get("result", [])
+            if not isinstance(result, list):
+                return []
+            _refresh_heartbeat()
+            return result
     except Exception as exc:
         print(f"[getUpdates 에러]: {str(exc)}")
         time.sleep(2)

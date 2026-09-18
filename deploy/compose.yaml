@@ -17,6 +17,8 @@ services:
       HERMES_INBOX_QUEUE_DIR: /var/lib/hermes/inbox_queue
       HERMES_APPROVAL_DB_PATH: /var/lib/hermes/state/memo_approvals.sqlite3
       HERMES_METRICS_LOG: /var/lib/hermes/state/events.jsonl
+      HERMES_HEARTBEAT_PATH: /var/lib/hermes/state/heartbeat
+      HERMES_HEARTBEAT_MAX_AGE_SECONDS: "120"
       GOOGLE_DRIVE_CREDENTIALS_FILE: /run/secrets/google-drive-credentials
       GOOGLE_DRIVE_ROOT_ID: "${GOOGLE_DRIVE_ROOT_ID:-}"
       WIKI_AGENT_URL: http://wiki-agent:8080/ask
@@ -52,6 +54,12 @@ services:
       options:
         max-size: 10m
         max-file: "3"
+    healthcheck:
+      test: ["CMD", "python", "/app/healthcheck.py"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
 
 secrets:
   telegram-bot-token:

@@ -26,6 +26,9 @@ def test_compose_keeps_candidate_disabled_and_wiki_read_only():
     assert service["environment"]["GOOGLE_DRIVE_CREDENTIALS_FILE"] == "/run/secrets/google-drive-credentials"
     assert service["environment"]["WIKI_AGENT_URL"] == "http://wiki-agent:8080/ask"
     assert service["environment"]["WIKI_AGENT_KEY_FILE"] == "/run/secrets/wiki-agent-key"
+    assert service["environment"]["HERMES_HEARTBEAT_PATH"] == "/var/lib/hermes/state/heartbeat"
+    assert service["healthcheck"]["test"] == ["CMD", "python", "/app/healthcheck.py"]
+    assert service["healthcheck"]["start_period"] == "45s"
     assert any(
         volume["target"] == "/run/secrets/google-drive-credentials" and volume["read_only"] is True
         for volume in service["volumes"]
@@ -53,6 +56,7 @@ def test_dockerfile_has_no_runtime_secret_or_host_port():
     assert "TELEGRAM_BOT_TOKEN" not in content
     assert "EXPOSE" not in content
     assert "USER hermes:hermes" in content
+    assert (PROJECT_ROOT / "healthcheck.py").is_file()
 
 
 def test_candidate_runtime_env_is_excluded_from_docker_context():

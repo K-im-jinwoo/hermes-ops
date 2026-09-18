@@ -21,6 +21,9 @@ OAuth credential file outside the image and repository.
 - The `candidate` Compose profile is intentionally disabled by default.
 - `TELEGRAM_DELETE_WEBHOOK` stays `false` while n8n is still the active
   Telegram receiver.
+- A successful Telegram long poll refreshes a heartbeat in the state volume.
+  Docker marks the gateway unhealthy when that heartbeat is older than 120
+  seconds, without sending extra Telegram API requests from the healthcheck.
 
 ## Host paths
 

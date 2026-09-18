@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import urllib.error
+
 import telegram_gateway
 
 
@@ -44,6 +46,42 @@ def test_webhook_deletion_requires_explicit_true_setting(monkeypatch):
     )
 
     assert telegram_gateway._should_delete_webhook() is True
+
+
+def test_successful_poll_refreshes_heartbeat(monkeypatch, tmp_path):
+    heartbeat = tmp_path / "heartbeat"
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return b'{"ok": true, "result": []}'
+
+    monkeypatch.setenv("HERMES_HEARTBEAT_PATH", str(heartbeat))
+    monkeypatch.setattr(telegram_gateway.urllib.request, "urlopen", lambda *args, **kwargs: Response())
+
+    assert telegram_gateway.fetch_telegram_updates("test-token", None, timeout_seconds=1) == []
+    assert heartbeat.is_file()
+
+
+def test_failed_poll_does_not_create_heartbeat(monkeypatch, tmp_path):
+    heartbeat = tmp_path / "heartbeat"
+
+    def fail(*args, **kwargs):
+        raise urllib.error.URLError("offline")
+
+    monkeypatch.setenv("HERMES_HEARTBEAT_PATH", str(heartbeat))
+    monkeypatch.setattr(telegram_gateway.urllib.request, "urlopen", fail)
+    monkeypatch.setattr(telegram_gateway.time, "sleep", lambda *_: None)
+
+    assert telegram_gateway.fetch_telegram_updates("test-token", None, timeout_seconds=1) == []
+    assert not heartbeat.exists()
 
 
 def test_env_file_value_can_be_loaded_from_file(monkeypatch, tmp_path):
