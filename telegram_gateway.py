@@ -11,6 +11,7 @@ from __future__ import annotations
 import html
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 import re
 import sqlite3
@@ -37,11 +38,20 @@ from tools.stock_tool import stock_research
 from tools.google_drive_request import DriveAction, GoogleDriveRequest, parse_google_drive_request
 from tools.google_drive_tool import DriveFile, GoogleDriveError, GoogleDriveClient, load_google_drive_client
 from tools.wiki_agent_client import WikiAgentError, ask_wiki
+from tools.wiki_task_client import WikiTaskError, query_tasks
+from tools.calendar_approval import CalendarApprovalStore, PendingCalendarPlan
+from tools.antigravity_calendar import (
+    AntigravityCalendarError,
+    create_approved_events,
+    propose_today_schedule,
+)
 from hooks.metrics_hook import record_tool_event
 from intent_router import IntentKind, classify_intent
 
 _APPROVAL_ID_PATTERN = re.compile(r"\bH-[A-F0-9]{12}\b", re.IGNORECASE)
+_CALENDAR_APPROVAL_ID_PATTERN = re.compile(r"\bC-[A-F0-9]{12}\b", re.IGNORECASE)
 _memo_approval_store: Optional[MemoApprovalStore] = None
+_calendar_approval_store: Optional[CalendarApprovalStore] = None
 _google_drive_client: Optional[GoogleDriveClient] = None
 
 
@@ -282,9 +292,144 @@ def _get_memo_approval_store() -> MemoApprovalStore:
     return _memo_approval_store
 
 
+def _get_calendar_approval_store() -> CalendarApprovalStore:
+    global _calendar_approval_store
+    if _calendar_approval_store is None:
+        database_path = Path(
+            os.getenv(
+                "HERMES_APPROVAL_DB_PATH",
+                str(_PROJECT_ROOT / "data" / "memo_approvals.sqlite3"),
+            )
+        )
+        raw_ttl = os.getenv("HERMES_CALENDAR_APPROVAL_TTL_SECONDS", "600")
+        try:
+            ttl_seconds = int(raw_ttl)
+        except ValueError:
+            ttl_seconds = 600
+        _calendar_approval_store = CalendarApprovalStore(
+            database_path,
+            ttl_seconds=max(1, ttl_seconds),
+        )
+    return _calendar_approval_store
+
+
 def _extract_approval_id(prompt: str) -> Optional[str]:
     match = _APPROVAL_ID_PATTERN.search(prompt)
     return match.group(0).upper() if match else None
+
+
+def _extract_calendar_approval_id(prompt: str) -> Optional[str]:
+    match = _CALENDAR_APPROVAL_ID_PATTERN.search(prompt)
+    return match.group(0).upper() if match else None
+
+
+def _tasks_endpoint() -> str:
+    configured = os.getenv("WIKI_TASKS_URL", "").strip()
+    if configured:
+        return configured
+    ask_endpoint = os.getenv("WIKI_AGENT_URL", "").strip()
+    if ask_endpoint.endswith("/ask"):
+        return ask_endpoint[:-4] + "/tasks/query"
+    return ""
+
+
+def _request_today_plan(*, user_id: Optional[str], chat_id: Optional[str]) -> str:
+    if not user_id or not chat_id:
+        return "오늘 일정 제안에 필요한 Telegram 사용자·채팅 식별자가 없습니다."
+    started = time.perf_counter()
+    try:
+        brief = query_tasks(
+            endpoint=_tasks_endpoint(),
+            key_file=Path(os.getenv("WIKI_AGENT_KEY_FILE", "")),
+            period="today",
+            limit=5,
+        )
+        proposal = propose_today_schedule(brief)
+        events = proposal.get("events", [])
+        if not events:
+            record_tool_event("today_calendar_plan", (time.perf_counter() - started) * 1000, "success")
+            return proposal.get("summary") or "오늘 일정 후보로 만들 WIKI Task가 없습니다."
+        pending = _get_calendar_approval_store().issue(
+            user_id=user_id,
+            chat_id=chat_id,
+            proposal=proposal,
+        )
+    except (WikiTaskError, AntigravityCalendarError) as error:
+        record_tool_event("today_calendar_plan", (time.perf_counter() - started) * 1000, "error")
+        return str(error)
+    except (OSError, sqlite3.Error, ValueError):
+        record_tool_event("today_calendar_plan", (time.perf_counter() - started) * 1000, "error")
+        return "일정 승인 상태를 저장할 수 없어 캘린더 생성을 시작하지 못했습니다."
+    record_tool_event("today_calendar_plan", (time.perf_counter() - started) * 1000, "success")
+    return _format_calendar_preview(proposal, pending)
+
+
+def _format_calendar_preview(proposal: dict, pending: PendingCalendarPlan) -> str:
+    lines = [
+        "오늘 할 일과 기존 Google Calendar 일정을 바탕으로 제안했습니다.",
+        "아직 캘린더에는 생성하지 않았습니다.",
+        "",
+        str(proposal.get("summary", "오늘 일정 제안")),
+    ]
+    for index, event in enumerate(proposal.get("events", []), start=1):
+        start = datetime.fromisoformat(event["start"])
+        end = datetime.fromisoformat(event["end"])
+        lines.append(
+            f"{index}. {start:%H:%M}~{end:%H:%M} {event['title']}\n"
+            f"   이유: {event['reason']}\n"
+            f"   근거: {event['sourceRef']}"
+        )
+    unscheduled = proposal.get("unscheduled", [])
+    if unscheduled:
+        lines.extend(("", "미배치: " + ", ".join(str(item) for item in unscheduled)))
+    lines.extend(
+        (
+            "",
+            "기본 범위: 09:00~18:00, 점심 12:00~13:00 제외",
+            f"승인 ID: {pending.approval_id}",
+            f"생성하려면 10분 안에 '일정 승인 {pending.approval_id}'라고 답하세요.",
+        )
+    )
+    return "\n".join(lines)
+
+
+def _approve_calendar(
+    prompt: str,
+    *,
+    user_id: Optional[str],
+    chat_id: Optional[str],
+) -> str:
+    approval_id = _extract_calendar_approval_id(prompt)
+    if not approval_id:
+        return "일정 승인 ID가 없습니다. 미리보기의 C- 승인 ID를 함께 보내주세요."
+    if not user_id or not chat_id:
+        return "Telegram 사용자·채팅 식별자가 없어 일정을 승인할 수 없습니다."
+    try:
+        pending = _get_calendar_approval_store().consume(
+            approval_id,
+            user_id=user_id,
+            chat_id=chat_id,
+        )
+    except (OSError, sqlite3.Error, ValueError):
+        return "일정 승인 상태를 확인할 수 없어 캘린더를 변경하지 않았습니다."
+    if pending is None:
+        return "일정 승인 ID가 없거나 만료되었거나 이미 사용되었거나 다른 사용자에게 발급된 ID입니다."
+
+    started = time.perf_counter()
+    try:
+        result = create_approved_events(pending.proposal)
+    except AntigravityCalendarError as error:
+        record_tool_event("calendar_create", (time.perf_counter() - started) * 1000, "error")
+        return f"일정 생성에 실패했습니다: {error} 새 미리보기를 요청해주세요."
+    record_tool_event("calendar_create", (time.perf_counter() - started) * 1000, "success")
+    created = result["created"]
+    skipped = result["skipped"]
+    failed = result["failed"]
+    lines = [f"Google Calendar 처리 결과: 생성 {len(created)}건, 중복 건너뜀 {len(skipped)}건, 실패 {len(failed)}건"]
+    lines.extend(f"- 생성: {item['title']}" for item in created)
+    lines.extend(f"- 건너뜀: {item['title']} ({item['reason']})" for item in skipped)
+    lines.extend(f"- 실패: {item['title']} ({item['reason']})" for item in failed)
+    return "\n".join(lines)
 
 
 def _build_memo_preview(prompt: str, pending: Optional[PendingMemo]) -> str:
@@ -503,6 +648,7 @@ def process_user_prompt(
             "안녕하세요! JinPro님의 개인 비서 봇입니다. 🤖\n\n"
             "다음과 같은 작업을 도와드릴 수 있습니다:\n"
             "📖 WIKI 조회: '최근 운동 기록 찾아줘', 'WIKI에서 프로젝트 검색'\n"
+            "🗓️ 오늘 일정: '오늘 할 일 정리하고 일정 추천해줘' (미리보기 후 승인)\n"
             "📝 메모 저장: '이 내용을 WIKI에 기록해줘' (미리보기 후 승인)\n"
             "☁️ Google Drive: '구글드라이브에서 회의록 찾아줘', '파일을 생성/수정/삭제해줘'\n"
             "💻 코딩/분석: 'codex에게 파이썬 코드 물어봐줘'\n"
@@ -522,6 +668,12 @@ def process_user_prompt(
 
     if intent.kind is IntentKind.GOOGLE_DRIVE:
         return _handle_google_drive_request(cleaned)
+
+    if intent.kind is IntentKind.TODAY_PLAN:
+        return _request_today_plan(user_id=user_id, chat_id=chat_id)
+
+    if intent.kind is IntentKind.CALENDAR_APPROVE:
+        return _approve_calendar(cleaned, user_id=user_id, chat_id=chat_id)
 
     if intent.kind is IntentKind.MEMO_WRITE:
         return _request_memo_approval(

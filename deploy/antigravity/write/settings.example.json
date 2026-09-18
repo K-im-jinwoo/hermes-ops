@@ -1,0 +1,14 @@
+{
+  "modelProvider": "gemini",
+  "permissions": {
+    "allow": [
+      "mcp(calendar/list_events)",
+      "mcp(calendar/create_event)"
+    ],
+    "deny": [
+      "mcp(calendar/update_event)",
+      "mcp(calendar/delete_event)",
+      "mcp(calendar/respond_to_event)"
+    ]
+  }
+}

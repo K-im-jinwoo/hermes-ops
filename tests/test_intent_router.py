@@ -16,6 +16,11 @@ def test_help_commands_remain_available_without_an_ask_command():
     assert classify_intent("/help").kind is IntentKind.HELP
 
 
+def test_today_plan_and_calendar_approval_are_distinct_from_wiki_and_memo():
+    assert classify_intent("오늘 할 일 정리하고 일정 추천해줘").kind is IntentKind.TODAY_PLAN
+    assert classify_intent("일정 승인 C-1234ABCDEF56").kind is IntentKind.CALENDAR_APPROVE
+
+
 def test_natural_language_wiki_question_is_read_only():
     intent = classify_intent("지난주 운동 기록 알려줘")
 

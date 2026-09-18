@@ -22,7 +22,11 @@ services:
       GOOGLE_DRIVE_CREDENTIALS_FILE: /run/secrets/google-drive-credentials
       GOOGLE_DRIVE_ROOT_ID: "${GOOGLE_DRIVE_ROOT_ID:-}"
       WIKI_AGENT_URL: http://wiki-agent:8080/ask
+      WIKI_TASKS_URL: http://wiki-agent:8080/tasks/query
       WIKI_AGENT_KEY_FILE: /run/secrets/wiki-agent-key
+      GEMINI_API_KEY_FILE: /run/secrets/gemini-api-key
+      HERMES_AGY_PLAN_HOME: /var/lib/hermes/agy-plan
+      HERMES_AGY_WRITE_HOME: /var/lib/hermes/agy-write
       HARNESS_API_URL: "${HARNESS_API_URL:-}"
     volumes:
       - type: bind
@@ -43,6 +47,20 @@ services:
         source: "${WIKI_AGENT_KEY_HOST_FILE:-/srv/llm-wiki/wiki-agent-shared-secret}"
         target: /run/secrets/wiki-agent-key
         read_only: true
+      - type: bind
+        source: "${GEMINI_API_KEY_HOST_FILE:-/srv/hermes-ops/gemini-api-key}"
+        target: /run/secrets/gemini-api-key
+        read_only: true
+      - type: bind
+        source: "${ANTIGRAVITY_CLI_HOST_BIN:-/srv/hermes-ops/bin/agy}"
+        target: /usr/local/bin/agy
+        read_only: true
+      - type: bind
+        source: "${ANTIGRAVITY_PLAN_HOME_HOST_DIR:-/srv/hermes-ops/antigravity-plan}"
+        target: /var/lib/hermes/agy-plan
+      - type: bind
+        source: "${ANTIGRAVITY_WRITE_HOME_HOST_DIR:-/srv/hermes-ops/antigravity-write}"
+        target: /var/lib/hermes/agy-write
     secrets:
       - telegram-bot-token
     tmpfs:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 import yaml
 
@@ -25,6 +26,7 @@ def test_compose_keeps_candidate_disabled_and_wiki_read_only():
     assert "telegram-bot-token" in service["secrets"]
     assert service["environment"]["GOOGLE_DRIVE_CREDENTIALS_FILE"] == "/run/secrets/google-drive-credentials"
     assert service["environment"]["WIKI_AGENT_URL"] == "http://wiki-agent:8080/ask"
+    assert service["environment"]["WIKI_TASKS_URL"] == "http://wiki-agent:8080/tasks/query"
     assert service["environment"]["WIKI_AGENT_KEY_FILE"] == "/run/secrets/wiki-agent-key"
     assert service["environment"]["HERMES_HEARTBEAT_PATH"] == "/var/lib/hermes/state/heartbeat"
     assert service["healthcheck"]["test"] == ["CMD", "python", "/app/healthcheck.py"]
@@ -35,6 +37,10 @@ def test_compose_keeps_candidate_disabled_and_wiki_read_only():
     )
     assert any(
         volume["target"] == "/run/secrets/wiki-agent-key" and volume["read_only"] is True
+        for volume in service["volumes"]
+    )
+    assert any(
+        volume["target"] == "/usr/local/bin/agy" and volume["read_only"] is True
         for volume in service["volumes"]
     )
     assert compose["networks"]["n8n-private"]["external"] is True
@@ -73,3 +79,26 @@ def test_deploy_readme_documents_direct_drive_credentials_and_legacy_queue():
     assert "refresh_token" in content
     assert "rclone" in content
     assert "legacy" in content.lower()
+
+
+def test_antigravity_profiles_enforce_read_then_approved_create_boundary():
+    plan_mcp = json.loads(
+        (DEPLOY_ROOT / "antigravity/plan/mcp_config.example.json").read_text(encoding="utf-8")
+    )
+    write_mcp = json.loads(
+        (DEPLOY_ROOT / "antigravity/write/mcp_config.example.json").read_text(encoding="utf-8")
+    )
+    plan_settings = json.loads(
+        (DEPLOY_ROOT / "antigravity/plan/settings.example.json").read_text(encoding="utf-8")
+    )
+    write_settings = json.loads(
+        (DEPLOY_ROOT / "antigravity/write/settings.example.json").read_text(encoding="utf-8")
+    )
+
+    assert "create_event" in plan_mcp["mcpServers"]["calendar"]["disabledTools"]
+    assert "create_event" not in write_mcp["mcpServers"]["calendar"]["disabledTools"]
+    assert "mcp(calendar/create_event)" in plan_settings["permissions"]["deny"]
+    assert "mcp(calendar/create_event)" in write_settings["permissions"]["allow"]
+    for settings in (plan_settings, write_settings):
+        assert "mcp(calendar/update_event)" in settings["permissions"]["deny"]
+        assert "mcp(calendar/delete_event)" in settings["permissions"]["deny"]

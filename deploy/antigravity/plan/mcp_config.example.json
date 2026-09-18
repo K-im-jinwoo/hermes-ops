@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "calendar": {
+      "serverUrl": "https://calendarmcp.googleapis.com/mcp/v1",
+      "oauth": {
+        "clientId": "REPLACE_WITH_GOOGLE_OAUTH_CLIENT_ID",
+        "clientSecret": "REPLACE_WITH_GOOGLE_OAUTH_CLIENT_SECRET"
+      },
+      "disabledTools": [
+        "create_event",
+        "update_event",
+        "delete_event",
+        "respond_to_event"
+      ]
+    }
+  }
+}

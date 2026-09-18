@@ -11,6 +11,8 @@ class IntentKind(str, Enum):
     WIKI_READ = "wiki_read"
     MEMO_WRITE = "memo_write"
     MEMO_APPROVE = "memo_approve"
+    TODAY_PLAN = "today_plan"
+    CALENDAR_APPROVE = "calendar_approve"
     ANTIGRAVITY = "antigravity"
     CODEX = "codex"
     HARNESS = "harness"
@@ -92,6 +94,22 @@ def classify_intent(user_text: str) -> Intent:
     lowered = prompt.casefold()
     if lowered in {"/start", "/help"}:
         return Intent(IntentKind.HELP, prompt, "help_command")
+
+    if "승인" in lowered and "c-" in lowered:
+        return Intent(IntentKind.CALENDAR_APPROVE, prompt, "calendar_approval_request")
+
+    if _contains_any(
+        lowered,
+        (
+            "오늘 할 일",
+            "오늘 할일",
+            "오늘 일정 짜",
+            "오늘 일정 추천",
+            "오늘 계획 짜",
+            "오늘 계획 추천",
+        ),
+    ):
+        return Intent(IntentKind.TODAY_PLAN, prompt, "today_plan_request")
 
     if _contains_any(lowered, ("antigravity", "agy", "안티그래비티")):
         return Intent(IntentKind.ANTIGRAVITY, prompt, "antigravity_request")

@@ -24,6 +24,13 @@ OAuth credential file outside the image and repository.
 - A successful Telegram long poll refreshes a heartbeat in the state volume.
   Docker marks the gateway unhealthy when that heartbeat is older than 120
   seconds, without sending extra Telegram API requests from the healthcheck.
+- `오늘 할 일 정리하고 일정 추천해줘` reads the wiki-agent's structured
+  `/tasks/query` response, asks Antigravity to check Calendar availability, and
+  returns a preview. Calendar events are created only after a matching `C-...`
+  approval from the same Telegram user and chat.
+- Antigravity uses two isolated homes. The planning home cannot see or invoke
+  `create_event`; the write home can invoke only `list_events` and
+  `create_event`. Update, delete, and RSVP tools are disabled in both profiles.
 
 ## Host paths
 
@@ -36,6 +43,12 @@ Create these paths on Oracle and make them writable by the runtime UID:
 /srv/hermes-ops/queue/uploaded
 /srv/hermes-ops/telegram-bot-token
 /srv/hermes-ops/google-drive-credentials.json
+/srv/hermes-ops/gemini-api-key
+/srv/hermes-ops/bin/agy
+/srv/hermes-ops/antigravity-plan/.gemini/config/mcp_config.json
+/srv/hermes-ops/antigravity-plan/.gemini/antigravity-cli/settings.json
+/srv/hermes-ops/antigravity-write/.gemini/config/mcp_config.json
+/srv/hermes-ops/antigravity-write/.gemini/antigravity-cli/settings.json
 /srv/llm-wiki/wiki-agent-shared-secret
 /srv/hermes-ops/uploader.env
 ```
@@ -72,6 +85,50 @@ The existing wiki-agent shared key is mounted read-only as
 `/run/secrets/wiki-agent-key`. The candidate container must be able to read
 the host file; do not copy the key into the image or repository. Keep Hermes
 and wiki-agent on the private `n8n-infra_default` Docker network.
+
+## Antigravity Calendar MCP setup
+
+Google Calendar MCP is a Developer Preview service. In a Google Cloud project,
+enable `calendar-json.googleapis.com` and `calendarmcp.googleapis.com`, enroll in
+the Workspace Developer Preview Program, and create a Web OAuth client whose
+authorized redirect URI is `https://antigravity.google/oauth-callback`.
+
+Install Antigravity CLI on the Oracle host using Google's official installer,
+then copy the resulting Linux binary to `/srv/hermes-ops/bin/agy`:
+
+```bash
+curl -fsSL https://antigravity.google/cli/install.sh | bash
+install -m 0755 "$HOME/.local/bin/agy" /srv/hermes-ops/bin/agy
+```
+
+Create the plan and write profile directories. Copy the matching files under
+`deploy/antigravity/`, remove the `.example` suffix, replace OAuth placeholders,
+and set ownership to the Compose runtime UID. Store the Gemini API key as one
+line in `/srv/hermes-ops/gemini-api-key` with mode `0600`.
+
+Authenticate the Calendar MCP once for each isolated home from an interactive
+one-off container. In `agy`, open `/mcp`, select `calendar`, choose
+`Authenticate`, complete the browser sign-in, and paste the returned code:
+
+```bash
+docker compose --env-file deploy/candidate.env -f deploy/compose.yaml --profile candidate run --rm --no-deps --entrypoint sh hermes-gateway
+HOME=/var/lib/hermes/agy-plan agy
+HOME=/var/lib/hermes/agy-write agy
+```
+
+Do not use `--dangerously-skip-permissions`. Headless runs use the exact MCP
+allow and deny rules from each profile. Validate both profiles before Telegram
+cutover:
+
+```bash
+HOME=/var/lib/hermes/agy-plan agy mcp list
+HOME=/var/lib/hermes/agy-write agy mcp list
+```
+
+The wiki-agent image must expose the authenticated `/tasks/query` endpoint from
+the same source revision before enabling this flow. A proposal request must not
+create an event. After reviewing the preview, approve one test event in a
+disposable time slot, then verify the event in the Google Calendar UI.
 
 The `uploader.env` file is only for the legacy queue fallback and may contain:
 

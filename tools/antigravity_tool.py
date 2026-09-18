@@ -23,6 +23,10 @@ def _locate_agy_executable() -> Optional[str]:
     if os.path.isfile(standard_local_path):
         return standard_local_path
 
+    linux_local_path = os.path.expanduser("~/.local/bin/agy")
+    if os.path.isfile(linux_local_path):
+        return linux_local_path
+
     return None
 
 
