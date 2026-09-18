@@ -49,6 +49,12 @@ def test_dockerfile_has_no_runtime_secret_or_host_port():
     assert "USER hermes:hermes" in content
 
 
+def test_candidate_runtime_env_is_excluded_from_docker_context():
+    patterns = (PROJECT_ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+
+    assert "deploy/*.env" in patterns
+
+
 def test_deploy_readme_documents_direct_drive_credentials_and_legacy_queue():
     content = (DEPLOY_ROOT / "README.md").read_text(encoding="utf-8")
 
