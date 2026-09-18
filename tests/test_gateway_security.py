@@ -87,3 +87,31 @@ def test_polling_logs_do_not_include_personal_message_content(monkeypatch, capsy
     assert private_prompt not in output
     assert private_answer not in output
     assert "Private Name" not in output
+    assert "[전송] 성공" in output
+
+
+def test_polling_reports_rejected_sender_without_identity(monkeypatch, capsys):
+    fetch_count = 0
+
+    def fetch_once(*args, **kwargs):
+        nonlocal fetch_count
+        fetch_count += 1
+        if fetch_count > 1:
+            raise KeyboardInterrupt
+        return [{"update_id": 1, "message": {
+            "from": {"id": 999, "first_name": "Private Name"},
+            "chat": {"id": 456}, "text": "Private message",
+        }}]
+
+    monkeypatch.setattr(telegram_gateway, "_load_env_token", lambda: "test-token")
+    monkeypatch.setattr(telegram_gateway, "_load_allowed_user_ids", lambda: frozenset({123}))
+    monkeypatch.setattr(telegram_gateway, "_should_delete_webhook", lambda: False)
+    monkeypatch.setattr(telegram_gateway, "fetch_telegram_updates", fetch_once)
+    monkeypatch.setattr(telegram_gateway, "process_user_prompt", lambda *args, **kwargs: None)
+    telegram_gateway.start_gateway_polling()
+
+    output = capsys.readouterr().out
+    assert "[거부] 허용되지 않은 발신자" in output
+    assert "999" not in output
+    assert "Private Name" not in output
+    assert "Private message" not in output

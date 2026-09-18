@@ -617,6 +617,7 @@ def start_gateway_polling() -> None:
                     continue
 
                 if not _is_allowed_telegram_user(message_obj, allowed_user_ids):
+                    print("[거부] 허용되지 않은 발신자")
                     continue
 
                 chat_id = message_obj.get("chat", {}).get("id")
@@ -632,7 +633,8 @@ def start_gateway_polling() -> None:
                 )
                 print(f"[답변] 응답 길이: {len(response_text)}자")
 
-                send_telegram_message(bot_token, chat_id, response_text)
+                sent = send_telegram_message(bot_token, chat_id, response_text)
+                print("[전송] 성공" if sent else "[전송] 실패")
 
         except KeyboardInterrupt:
             print("\n[알림] 사용자에 의해 게이트웨이가 종료되었습니다.")
