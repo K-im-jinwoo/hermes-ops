@@ -5,136 +5,87 @@ from types import SimpleNamespace
 
 import pytest
 
-from tools.antigravity_calendar import (
-    AntigravityCalendarError,
-    create_approved_events,
-    propose_today_schedule,
-)
+from tools.antigravity_calendar import AntigravityCalendarError, create_approved_events, propose_today_schedule
+from tools.google_calendar_tool import CalendarEvent, GoogleCalendarError
 
 
 def _brief() -> dict:
-    return {
-        "referenceDate": "2026-09-18",
-        "confirmed": [
-            {
-                "path": "wiki/10_Projects/hermes.md",
-                "lineNumber": 20,
-                "text": "Hermes 일정 기능 검증",
-                "dueDate": "2026-09-18",
-                "priority": "high",
-                "estimateMinutes": 90,
-                "reason": "오늘 확정 작업",
-            }
-        ],
-        "carryOver": [],
-        "recommended": [],
-    }
+    return {"referenceDate": "2026-09-18", "confirmed": [{"path": "wiki/hermes.md", "lineNumber": 20,
+            "text": "Hermes 일정 기능 검증", "dueDate": "2026-09-18", "priority": "high",
+            "estimateMinutes": 90, "reason": "오늘 확정 작업"}], "carryOver": [], "recommended": []}
+
+
+class FakeCalendar:
+    def __init__(self, events=None, fail=False):
+        self.events = list(events or [])
+        self.fail = fail
+        self.calls = []
+
+    def list_events(self, start, end):
+        self.calls.append(("list", start, end))
+        if self.fail:
+            raise GoogleCalendarError("failed")
+        return list(self.events)
+
+    def create_event(self, title, start, end, *, description=""):
+        self.calls.append(("create", title, start, end, description))
+        return CalendarEvent("event-1", title, start, end)
 
 
 def _runner_with(structured_output):
     calls = []
-
     def run(command, **kwargs):
         calls.append((command, kwargs))
-        if command[1:3] == ["mcp", "list"]:
-            return SimpleNamespace(returncode=0, stdout="calendar enabled", stderr="")
-        return SimpleNamespace(
-            returncode=0,
-            stdout=json.dumps({"status": "SUCCESS", "structured_output": structured_output}),
-            stderr="",
-        )
-
+        return SimpleNamespace(returncode=0, stdout=json.dumps(
+            {"status": "SUCCESS", "structured_output": structured_output}), stderr="")
     return run, calls
 
 
-def test_proposal_reads_calendar_and_returns_validated_events():
-    output = {
-        "calendarChecked": True,
-        "summary": "오전 집중 작업",
-        "events": [
-            {
-                "sourceRef": "wiki/10_Projects/hermes.md#20",
-                "title": "Hermes 일정 기능 검증",
-                "start": "2026-09-18T09:00:00+09:00",
-                "end": "2026-09-18T10:30:00+09:00",
-                "description": "WIKI Task 기반",
-                "reason": "마감 및 우선순위가 높음",
-            }
-        ],
-        "unscheduled": [],
-    }
-    runner, calls = _runner_with(output)
-
-    result = propose_today_schedule(_brief(), executable="agy", runner=runner)
-
-    assert result == output
-    command = calls[1][0]
-    assert "--dangerously-skip-permissions" not in command
-    assert "--json-schema" in command
-    assert "create_event" in command[2]
-    assert "절대 호출하지 마라" in command[2]
+def _proposal_output():
+    return {"calendarChecked": True, "summary": "오전 집중 작업", "events": [{
+        "sourceRef": "wiki/hermes.md#20", "title": "Hermes 일정 기능 검증",
+        "start": "2026-09-18T09:00:00+09:00", "end": "2026-09-18T10:30:00+09:00",
+        "description": "WIKI Task 기반", "reason": "마감 우선"}], "unscheduled": []}
 
 
-def test_proposal_fails_closed_when_calendar_was_not_checked():
-    output = {"calendarChecked": False, "summary": "", "events": [], "unscheduled": []}
-    runner, _ = _runner_with(output)
+def test_proposal_reads_calendar_before_antigravity_and_validates_output():
+    runner, calls = _runner_with(_proposal_output())
+    calendar = FakeCalendar([CalendarEvent("busy", "회의", "2026-09-18T11:00:00+09:00", "2026-09-18T12:00:00+09:00")])
+    result = propose_today_schedule(_brief(), executable="agy", runner=runner, calendar_client=calendar)
+    assert result == _proposal_output()
+    assert calendar.calls[0][0] == "list"
+    assert "[CALENDAR_EVENTS]" in calls[0][0][2]
+    assert "도구나 셸 명령은 호출하지 마라" in calls[0][0][2]
+    assert "--dangerously-skip-permissions" not in calls[0][0]
 
-    with pytest.raises(AntigravityCalendarError, match="권한 또는 인증"):
-        propose_today_schedule(_brief(), executable="agy", runner=runner)
+
+def test_proposal_fails_closed_when_calendar_read_fails():
+    runner, _ = _runner_with(_proposal_output())
+    with pytest.raises(AntigravityCalendarError, match="일정을 확인하지 못했습니다"):
+        propose_today_schedule(_brief(), executable="agy", runner=runner, calendar_client=FakeCalendar(fail=True))
 
 
 def test_proposal_rejects_event_during_lunch():
-    output = {
-        "calendarChecked": True,
-        "summary": "점심 일정",
-        "events": [
-            {
-                "sourceRef": "wiki/10_Projects/hermes.md#20",
-                "title": "Hermes 일정 기능 검증",
-                "start": "2026-09-18T12:00:00+09:00",
-                "end": "2026-09-18T13:00:00+09:00",
-                "description": "WIKI Task 기반",
-                "reason": "추천",
-            }
-        ],
-        "unscheduled": [],
-    }
+    output = _proposal_output()
+    output["events"][0]["start"] = "2026-09-18T12:00:00+09:00"
+    output["events"][0]["end"] = "2026-09-18T13:00:00+09:00"
     runner, _ = _runner_with(output)
-
-    with pytest.raises(AntigravityCalendarError, match="점심 시간"):
-        propose_today_schedule(_brief(), executable="agy", runner=runner)
-
-
-def test_create_approved_events_checks_duplicates_before_create():
-    proposal = {
-        "events": [
-            {
-                "sourceRef": "wiki/10_Projects/hermes.md#20",
-                "title": "Hermes 일정 기능 검증",
-                "start": "2026-09-18T09:00:00+09:00",
-                "end": "2026-09-18T10:30:00+09:00",
-                "description": "WIKI Task 기반",
-                "reason": "마감 및 우선순위가 높음",
-            }
-        ]
-    }
-    output = {
-        "calendarChecked": True,
-        "created": [{"title": "Hermes 일정 기능 검증", "eventId": "event-1"}],
-        "skipped": [],
-        "failed": [],
-    }
-    runner, calls = _runner_with(output)
-
-    result = create_approved_events(proposal, executable="agy", runner=runner)
-
-    assert result["created"][0]["eventId"] == "event-1"
-    assert "같은 시작·종료 시각과 제목" in calls[1][0][2]
+    with pytest.raises(AntigravityCalendarError, match="점심시간"):
+        propose_today_schedule(_brief(), executable="agy", runner=runner, calendar_client=FakeCalendar())
 
 
-def test_missing_calendar_mcp_is_reported_before_model_run():
-    def runner(command, **kwargs):
-        return SimpleNamespace(returncode=0, stdout="No MCP servers configured.", stderr="")
+def test_approved_create_checks_exact_duplicate_before_write():
+    proposal = {"events": _proposal_output()["events"]}
+    calendar = FakeCalendar()
+    result = create_approved_events(proposal, calendar_client=calendar)
+    assert result["created"] == [{"title": "Hermes 일정 기능 검증", "eventId": "event-1"}]
+    assert [call[0] for call in calendar.calls] == ["list", "create"]
 
-    with pytest.raises(AntigravityCalendarError, match="calendar MCP"):
-        propose_today_schedule(_brief(), executable="agy", runner=runner)
+
+def test_exact_duplicate_is_skipped_without_create():
+    event = _proposal_output()["events"][0]
+    calendar = FakeCalendar([CalendarEvent("existing", event["title"], event["start"], event["end"])])
+    result = create_approved_events({"events": [event]}, calendar_client=calendar)
+    assert result["created"] == []
+    assert result["skipped"][0]["title"] == event["title"]
+    assert [call[0] for call in calendar.calls] == ["list"]

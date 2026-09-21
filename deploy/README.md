@@ -18,6 +18,9 @@ OAuth credential file outside the image and repository.
   used by the candidate Compose service.
 - `GOOGLE_DRIVE_CREDENTIALS_FILE` is mounted read-only at runtime and is never
   copied into the image.
+- `GOOGLE_CALENDAR_CREDENTIALS_FILE` is mounted read-only. Hermes reads busy
+  times and creates only Telegram-approved events through Calendar v3. The
+  Antigravity CLI still produces the structured schedule proposal.
 - The `candidate` Compose profile is intentionally disabled by default.
 - `TELEGRAM_DELETE_WEBHOOK` stays `false` while n8n is still the active
   Telegram receiver.
@@ -43,6 +46,7 @@ Create these paths on Oracle and make them writable by the runtime UID:
 /srv/hermes-ops/queue/uploaded
 /srv/hermes-ops/telegram-bot-token
 /srv/hermes-ops/google-drive-credentials.json
+/srv/hermes-ops/google-calendar-credentials.json
 /srv/hermes-ops/gemini-api-key
 /srv/hermes-ops/bin/agy
 /srv/hermes-ops/antigravity-plan/.gemini/config/mcp_config.json
@@ -86,7 +90,18 @@ The existing wiki-agent shared key is mounted read-only as
 the host file; do not copy the key into the image or repository. Keep Hermes
 and wiki-agent on the private `n8n-infra_default` Docker network.
 
-## Antigravity Calendar MCP setup
+## Antigravity Calendar setup
+
+Calendar MCP currently requires Google Workspace Developer Preview enrollment.
+Hermes therefore uses the stable Calendar v3 API for deterministic availability
+checks and approved creates, while Antigravity CLI performs schedule planning.
+The Calendar OAuth credential has the same JSON shape shown above and must have
+Calendar read/write scopes. Keep it at mode `0600`.
+
+The remote Calendar MCP profile remains optional for later migration after the
+Cloud project is accepted into the Developer Preview Program.
+
+### Optional remote Calendar MCP
 
 Google Calendar MCP is a Developer Preview service. In a Google Cloud project,
 enable `calendar-json.googleapis.com` and `calendarmcp.googleapis.com`, enroll in

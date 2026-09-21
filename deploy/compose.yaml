@@ -4,7 +4,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    image: "${HERMES_IMAGE:-hermes-ops:2026-09-18-today-calendar-efe3835}"
+    image: "${HERMES_IMAGE:-hermes-ops:2026-09-21-calendar-v3}"
     user: "${HERMES_CONTAINER_UID:-1000}:${HERMES_CONTAINER_GID:-1000}"
     restart: unless-stopped
     read_only: true
@@ -20,6 +20,7 @@ services:
       HERMES_HEARTBEAT_PATH: /var/lib/hermes/state/heartbeat
       HERMES_HEARTBEAT_MAX_AGE_SECONDS: "120"
       GOOGLE_DRIVE_CREDENTIALS_FILE: /run/secrets/google-drive-credentials
+      GOOGLE_CALENDAR_CREDENTIALS_FILE: /run/secrets/google-calendar-credentials
       GOOGLE_DRIVE_ROOT_ID: "${GOOGLE_DRIVE_ROOT_ID:-}"
       WIKI_AGENT_URL: http://wiki-agent:8080/ask
       WIKI_TASKS_URL: http://wiki-agent:8080/tasks/query
@@ -42,6 +43,10 @@ services:
       - type: bind
         source: "${GOOGLE_DRIVE_CREDENTIALS_HOST_FILE:-/srv/hermes-ops/google-drive-credentials.json}"
         target: /run/secrets/google-drive-credentials
+        read_only: true
+      - type: bind
+        source: "${GOOGLE_CALENDAR_CREDENTIALS_HOST_FILE:-/srv/hermes-ops/google-calendar-credentials.json}"
+        target: /run/secrets/google-calendar-credentials
         read_only: true
       - type: bind
         source: "${WIKI_AGENT_KEY_HOST_FILE:-/srv/llm-wiki/wiki-agent-shared-secret}"

@@ -25,6 +25,7 @@ def test_compose_keeps_candidate_disabled_and_wiki_read_only():
     assert service["environment"]["TELEGRAM_BOT_TOKEN_FILE"] == "/run/secrets/telegram-bot-token"
     assert "telegram-bot-token" in service["secrets"]
     assert service["environment"]["GOOGLE_DRIVE_CREDENTIALS_FILE"] == "/run/secrets/google-drive-credentials"
+    assert service["environment"]["GOOGLE_CALENDAR_CREDENTIALS_FILE"] == "/run/secrets/google-calendar-credentials"
     assert service["environment"]["WIKI_AGENT_URL"] == "http://wiki-agent:8080/ask"
     assert service["environment"]["WIKI_TASKS_URL"] == "http://wiki-agent:8080/tasks/query"
     assert service["environment"]["WIKI_AGENT_KEY_FILE"] == "/run/secrets/wiki-agent-key"
@@ -33,6 +34,10 @@ def test_compose_keeps_candidate_disabled_and_wiki_read_only():
     assert service["healthcheck"]["start_period"] == "45s"
     assert any(
         volume["target"] == "/run/secrets/google-drive-credentials" and volume["read_only"] is True
+        for volume in service["volumes"]
+    )
+    assert any(
+        volume["target"] == "/run/secrets/google-calendar-credentials" and volume["read_only"] is True
         for volume in service["volumes"]
     )
     assert any(
