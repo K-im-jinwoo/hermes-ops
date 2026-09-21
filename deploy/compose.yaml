@@ -4,7 +4,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    image: "${HERMES_IMAGE:-hermes-ops:2026-09-21-calendar-v3}"
+    image: "${HERMES_IMAGE:-hermes-ops:2026-09-21-task-selection}"
     user: "${HERMES_CONTAINER_UID:-1000}:${HERMES_CONTAINER_GID:-1000}"
     restart: unless-stopped
     read_only: true
@@ -16,6 +16,7 @@ services:
       HERMES_MEMO_SINK: drive
       HERMES_INBOX_QUEUE_DIR: /var/lib/hermes/inbox_queue
       HERMES_APPROVAL_DB_PATH: /var/lib/hermes/state/memo_approvals.sqlite3
+      HERMES_TASK_SELECTION_TTL_SECONDS: "600"
       HERMES_METRICS_LOG: /var/lib/hermes/state/events.jsonl
       HERMES_HEARTBEAT_PATH: /var/lib/hermes/state/heartbeat
       HERMES_HEARTBEAT_MAX_AGE_SECONDS: "120"

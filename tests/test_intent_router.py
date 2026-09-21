@@ -18,6 +18,7 @@ def test_help_commands_remain_available_without_an_ask_command():
 
 def test_today_plan_and_calendar_approval_are_distinct_from_wiki_and_memo():
     assert classify_intent("오늘 할 일 정리하고 일정 추천해줘").kind is IntentKind.TODAY_PLAN
+    assert classify_intent("추천 선택 S-1234ABCDEF56 1,3").kind is IntentKind.TASK_SELECT
     assert classify_intent("일정 승인 C-1234ABCDEF56").kind is IntentKind.CALENDAR_APPROVE
 
 

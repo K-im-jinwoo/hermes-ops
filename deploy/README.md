@@ -28,12 +28,14 @@ OAuth credential file outside the image and repository.
   Docker marks the gateway unhealthy when that heartbeat is older than 120
   seconds, without sending extra Telegram API requests from the healthcheck.
 - `오늘 할 일 정리하고 일정 추천해줘` reads the wiki-agent's structured
-  `/tasks/query` response, asks Antigravity to check Calendar availability, and
-  returns a preview. Calendar events are created only after a matching `C-...`
-  approval from the same Telegram user and chat.
-- Antigravity uses two isolated homes. The planning home cannot see or invoke
-  `create_event`; the write home can invoke only `list_events` and
-  `create_event`. Update, delete, and RSVP tools are disabled in both profiles.
+  `/tasks/query` response. Confirmed and carry-over tasks go directly to a
+  schedule preview. When neither exists, Hermes returns recommendation
+  candidates and requires an identity-bound `S-...` number selection first.
+- Calendar v3 supplies availability from the next half-hour through 18:00.
+  Antigravity plans only the selected tasks, and deterministic validation rejects
+  past, lunch-time, Calendar-conflicting, or mutually overlapping events.
+- Calendar events are created only after a matching `C-...` approval from the
+  same Telegram user and chat. Update and delete remain unsupported.
 
 ## Host paths
 

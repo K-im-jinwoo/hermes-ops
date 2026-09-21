@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -72,6 +73,55 @@ def test_proposal_rejects_event_during_lunch():
     runner, _ = _runner_with(output)
     with pytest.raises(AntigravityCalendarError, match="점심시간"):
         propose_today_schedule(_brief(), executable="agy", runner=runner, calendar_client=FakeCalendar())
+
+
+def test_proposal_uses_next_half_hour_and_rejects_past_slots():
+    output = _proposal_output()
+    output["events"][0]["start"] = "2026-09-18T10:00:00+09:00"
+    output["events"][0]["end"] = "2026-09-18T11:00:00+09:00"
+    runner, calls = _runner_with(output)
+    calendar = FakeCalendar()
+
+    with pytest.raises(AntigravityCalendarError, match="이미 지난 시간"):
+        propose_today_schedule(
+            _brief(),
+            executable="agy",
+            runner=runner,
+            calendar_client=calendar,
+            now=datetime(2026, 9, 18, 10, 1, tzinfo=timezone(timedelta(hours=9))),
+        )
+
+    assert calendar.calls[0][1] == "2026-09-18T10:30:00+09:00"
+    assert "10:30~18:00" in calls[0][0][2]
+
+
+def test_proposal_returns_no_events_after_business_hours():
+    result = propose_today_schedule(
+        _brief(),
+        executable="agy",
+        runner=lambda *args, **kwargs: pytest.fail("Antigravity must not run"),
+        calendar_client=FakeCalendar(),
+        now=datetime(2026, 9, 18, 18, 1, tzinfo=timezone(timedelta(hours=9))),
+    )
+
+    assert result["events"] == []
+    assert "시간이 남아 있지 않습니다" in result["summary"]
+
+
+def test_proposal_rejects_overlap_with_existing_calendar_event():
+    output = _proposal_output()
+    runner, _ = _runner_with(output)
+    calendar = FakeCalendar([
+        CalendarEvent(
+            "busy",
+            "기존 회의",
+            "2026-09-18T09:30:00+09:00",
+            "2026-09-18T10:00:00+09:00",
+        )
+    ])
+
+    with pytest.raises(AntigravityCalendarError, match="기존 Google Calendar 일정과 겹치는"):
+        propose_today_schedule(_brief(), executable="agy", runner=runner, calendar_client=calendar)
 
 
 def test_approved_create_checks_exact_duplicate_before_write():

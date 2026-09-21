@@ -40,6 +40,7 @@ from tools.google_drive_tool import DriveFile, GoogleDriveError, GoogleDriveClie
 from tools.wiki_agent_client import WikiAgentError, ask_wiki
 from tools.wiki_task_client import WikiTaskError, query_tasks
 from tools.calendar_approval import CalendarApprovalStore, PendingCalendarPlan
+from tools.task_selection import PendingTaskSelection, TaskSelectionError, TaskSelectionStore
 from tools.antigravity_calendar import (
     AntigravityCalendarError,
     create_approved_events,
@@ -50,8 +51,10 @@ from intent_router import IntentKind, classify_intent
 
 _APPROVAL_ID_PATTERN = re.compile(r"\bH-[A-F0-9]{12}\b", re.IGNORECASE)
 _CALENDAR_APPROVAL_ID_PATTERN = re.compile(r"\bC-[A-F0-9]{12}\b", re.IGNORECASE)
+_TASK_SELECTION_ID_PATTERN = re.compile(r"\bS-[A-F0-9]{12}\b", re.IGNORECASE)
 _memo_approval_store: Optional[MemoApprovalStore] = None
 _calendar_approval_store: Optional[CalendarApprovalStore] = None
+_task_selection_store: Optional[TaskSelectionStore] = None
 _google_drive_client: Optional[GoogleDriveClient] = None
 
 
@@ -313,6 +316,27 @@ def _get_calendar_approval_store() -> CalendarApprovalStore:
     return _calendar_approval_store
 
 
+def _get_task_selection_store() -> TaskSelectionStore:
+    global _task_selection_store
+    if _task_selection_store is None:
+        database_path = Path(
+            os.getenv(
+                "HERMES_APPROVAL_DB_PATH",
+                str(_PROJECT_ROOT / "data" / "memo_approvals.sqlite3"),
+            )
+        )
+        raw_ttl = os.getenv("HERMES_TASK_SELECTION_TTL_SECONDS", "600")
+        try:
+            ttl_seconds = int(raw_ttl)
+        except ValueError:
+            ttl_seconds = 600
+        _task_selection_store = TaskSelectionStore(
+            database_path,
+            ttl_seconds=max(1, ttl_seconds),
+        )
+    return _task_selection_store
+
+
 def _extract_approval_id(prompt: str) -> Optional[str]:
     match = _APPROVAL_ID_PATTERN.search(prompt)
     return match.group(0).upper() if match else None
@@ -321,6 +345,16 @@ def _extract_approval_id(prompt: str) -> Optional[str]:
 def _extract_calendar_approval_id(prompt: str) -> Optional[str]:
     match = _CALENDAR_APPROVAL_ID_PATTERN.search(prompt)
     return match.group(0).upper() if match else None
+
+
+def _extract_task_selection_id(prompt: str) -> Optional[str]:
+    match = _TASK_SELECTION_ID_PATTERN.search(prompt)
+    return match.group(0).upper() if match else None
+
+
+def _extract_task_selection_indices(prompt: str) -> tuple[int, ...]:
+    without_id = _TASK_SELECTION_ID_PATTERN.sub("", prompt)
+    return tuple(dict.fromkeys(int(value) for value in re.findall(r"(?<!\d)([1-9]\d*)(?!\d)", without_id)))
 
 
 def _tasks_endpoint() -> str:
@@ -344,7 +378,23 @@ def _request_today_plan(*, user_id: Optional[str], chat_id: Optional[str]) -> st
             period="today",
             limit=5,
         )
-        proposal = propose_today_schedule(brief)
+        confirmed = brief.get("confirmed", [])
+        carry_over = brief.get("carryOver", [])
+        if not confirmed and not carry_over:
+            recommendations = brief.get("recommended", [])
+            if not isinstance(recommendations, list) or not recommendations:
+                record_tool_event("today_calendar_plan", (time.perf_counter() - started) * 1000, "success")
+                return "오늘 확정·이월 작업과 추천할 WIKI Task가 없습니다."
+            selection = _get_task_selection_store().issue(
+                user_id=user_id,
+                chat_id=chat_id,
+                brief=brief,
+            )
+            record_tool_event("today_calendar_plan", (time.perf_counter() - started) * 1000, "success")
+            return _format_task_recommendations(brief, selection)
+        plan_brief = dict(brief)
+        plan_brief["recommended"] = []
+        proposal = propose_today_schedule(plan_brief)
         events = proposal.get("events", [])
         if not events:
             record_tool_event("today_calendar_plan", (time.perf_counter() - started) * 1000, "success")
@@ -362,6 +412,87 @@ def _request_today_plan(*, user_id: Optional[str], chat_id: Optional[str]) -> st
         return "일정 승인 상태를 저장할 수 없어 캘린더 생성을 시작하지 못했습니다."
     record_tool_event("today_calendar_plan", (time.perf_counter() - started) * 1000, "success")
     return _format_calendar_preview(proposal, pending)
+
+
+def _format_task_recommendations(brief: dict, pending: PendingTaskSelection) -> str:
+    recommendations = brief.get("recommended", [])
+    lines = [
+        "오늘 확정 작업 0건, 이월 작업 0건입니다.",
+        "아래 항목은 오늘 하기로 확정된 작업이 아니라 WIKI 미완료 Task에서 고른 추천 후보입니다.",
+        "",
+    ]
+    for index, item in enumerate(recommendations, start=1):
+        estimate = item.get("estimateMinutes")
+        estimate_text = f"{estimate}분" if isinstance(estimate, int) else "미지정(일정 생성 시 60분 가정)"
+        lines.append(
+            f"{index}. {item.get('text', '')}\n"
+            f"   이유: {item.get('reason', '')}\n"
+            f"   예상 시간: {estimate_text}\n"
+            f"   근거: {item.get('path', '')}#{item.get('lineNumber', '')}"
+        )
+    lines.extend(
+        (
+            "",
+            f"선택 ID: {pending.selection_id}",
+            f"10분 안에 예: '추천 선택 {pending.selection_id} 1,3'처럼 일정에 넣을 번호를 답하세요.",
+        )
+    )
+    return "\n".join(lines)
+
+
+def _select_recommended_tasks(
+    prompt: str,
+    *,
+    user_id: Optional[str],
+    chat_id: Optional[str],
+) -> str:
+    selection_id = _extract_task_selection_id(prompt)
+    selected_indices = _extract_task_selection_indices(prompt)
+    if not selection_id:
+        return "추천 선택 ID가 없습니다. 추천 목록의 S- 선택 ID를 함께 보내주세요."
+    if not selected_indices:
+        return "일정에 넣을 추천 번호를 하나 이상 입력해주세요. 예: 1,3"
+    if not user_id or not chat_id:
+        return "Telegram 사용자·채팅 식별자가 없어 추천 Task를 선택할 수 없습니다."
+    try:
+        pending = _get_task_selection_store().consume(
+            selection_id,
+            user_id=user_id,
+            chat_id=chat_id,
+            selected_indices=selected_indices,
+        )
+    except TaskSelectionError as error:
+        return str(error)
+    except (OSError, sqlite3.Error, ValueError):
+        return "추천 선택 상태를 확인하지 못했습니다. 새 추천 목록을 요청해주세요."
+    if pending is None:
+        return "추천 선택 ID가 없거나 만료되었거나 이미 사용되었거나 다른 사용자에게 발급된 ID입니다."
+
+    recommendations = pending.brief.get("recommended", [])
+    selected = [recommendations[index - 1] for index in selected_indices]
+    plan_brief = dict(pending.brief)
+    plan_brief["confirmed"] = []
+    plan_brief["carryOver"] = []
+    plan_brief["recommended"] = selected
+    started = time.perf_counter()
+    try:
+        proposal = propose_today_schedule(plan_brief)
+        if not proposal.get("events"):
+            record_tool_event("today_task_selection", (time.perf_counter() - started) * 1000, "success")
+            return proposal.get("summary") or "오늘 남은 시간에 배치할 수 있는 일정이 없습니다."
+        approval = _get_calendar_approval_store().issue(
+            user_id=user_id,
+            chat_id=chat_id,
+            proposal=proposal,
+        )
+    except AntigravityCalendarError as error:
+        record_tool_event("today_task_selection", (time.perf_counter() - started) * 1000, "error")
+        return str(error)
+    except (OSError, sqlite3.Error, ValueError):
+        record_tool_event("today_task_selection", (time.perf_counter() - started) * 1000, "error")
+        return "일정 승인 상태를 저장할 수 없어 캘린더 생성을 시작하지 못했습니다."
+    record_tool_event("today_task_selection", (time.perf_counter() - started) * 1000, "success")
+    return _format_calendar_preview(proposal, approval)
 
 
 def _format_calendar_preview(proposal: dict, pending: PendingCalendarPlan) -> str:
@@ -385,7 +516,7 @@ def _format_calendar_preview(proposal: dict, pending: PendingCalendarPlan) -> st
     lines.extend(
         (
             "",
-            "기본 범위: 09:00~18:00, 점심 12:00~13:00 제외",
+            "배치 범위: 09:00 또는 현재 시각 중 늦은 시각부터 18:00, 점심 12:00~13:00 제외",
             f"승인 ID: {pending.approval_id}",
             f"생성하려면 10분 안에 '일정 승인 {pending.approval_id}'라고 답하세요.",
         )
@@ -648,7 +779,7 @@ def process_user_prompt(
             "안녕하세요! JinPro님의 개인 비서 봇입니다. 🤖\n\n"
             "다음과 같은 작업을 도와드릴 수 있습니다:\n"
             "📖 WIKI 조회: '최근 운동 기록 찾아줘', 'WIKI에서 프로젝트 검색'\n"
-            "🗓️ 오늘 일정: '오늘 할 일 정리하고 일정 추천해줘' (미리보기 후 승인)\n"
+            "🗓️ 오늘 일정: '오늘 할 일 정리하고 일정 추천해줘' (추천 선택 또는 미리보기 후 승인)\n"
             "📝 메모 저장: '이 내용을 WIKI에 기록해줘' (미리보기 후 승인)\n"
             "☁️ Google Drive: '구글드라이브에서 회의록 찾아줘', '파일을 생성/수정/삭제해줘'\n"
             "💻 코딩/분석: 'codex에게 파이썬 코드 물어봐줘'\n"
@@ -671,6 +802,9 @@ def process_user_prompt(
 
     if intent.kind is IntentKind.TODAY_PLAN:
         return _request_today_plan(user_id=user_id, chat_id=chat_id)
+
+    if intent.kind is IntentKind.TASK_SELECT:
+        return _select_recommended_tasks(cleaned, user_id=user_id, chat_id=chat_id)
 
     if intent.kind is IntentKind.CALENDAR_APPROVE:
         return _approve_calendar(cleaned, user_id=user_id, chat_id=chat_id)

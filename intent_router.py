@@ -12,6 +12,7 @@ class IntentKind(str, Enum):
     MEMO_WRITE = "memo_write"
     MEMO_APPROVE = "memo_approve"
     TODAY_PLAN = "today_plan"
+    TASK_SELECT = "task_select"
     CALENDAR_APPROVE = "calendar_approve"
     ANTIGRAVITY = "antigravity"
     CODEX = "codex"
@@ -97,6 +98,9 @@ def classify_intent(user_text: str) -> Intent:
 
     if "승인" in lowered and "c-" in lowered:
         return Intent(IntentKind.CALENDAR_APPROVE, prompt, "calendar_approval_request")
+
+    if "s-" in lowered and "선택" in lowered:
+        return Intent(IntentKind.TASK_SELECT, prompt, "task_selection_request")
 
     if _contains_any(
         lowered,

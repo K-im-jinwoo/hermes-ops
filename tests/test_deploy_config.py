@@ -26,6 +26,7 @@ def test_compose_keeps_candidate_disabled_and_wiki_read_only():
     assert "telegram-bot-token" in service["secrets"]
     assert service["environment"]["GOOGLE_DRIVE_CREDENTIALS_FILE"] == "/run/secrets/google-drive-credentials"
     assert service["environment"]["GOOGLE_CALENDAR_CREDENTIALS_FILE"] == "/run/secrets/google-calendar-credentials"
+    assert service["environment"]["HERMES_TASK_SELECTION_TTL_SECONDS"] == "600"
     assert service["environment"]["WIKI_AGENT_URL"] == "http://wiki-agent:8080/ask"
     assert service["environment"]["WIKI_TASKS_URL"] == "http://wiki-agent:8080/tasks/query"
     assert service["environment"]["WIKI_AGENT_KEY_FILE"] == "/run/secrets/wiki-agent-key"
